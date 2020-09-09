@@ -1,0 +1,36 @@
+*.py[cod]
+__pycache__
+
+# C extensions
+*.so
+
+# Unit test / coverage reports
+.coverage
+.tox
+.pytest_cache
+.hypothesis
+.mypy_cache
+
+# virtualenv
+.venv
+.venv-*
+
+
+# secrets
+secrets
+!secrets/example
+
+
+# build
+/build
+/ext/linux/*.so
+/ext/windows/*.dll
+
+# test fixtures
+/test/fixtures/**/*.sqlite
+/test/fixtures/**/*.log
+/test/fixtures/**/*.csv
+/test/fixtures/**/output/*
+
+scratch
+
