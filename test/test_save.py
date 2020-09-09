@@ -20,7 +20,9 @@ CONFIG = Config(
 def test_save_single_match_path():
     remove_db_files()
     root_dir = os.path.join(ROOT_DIR, "data_types")
-    match_path = os.path.join("{data_type}", "{account}", "csv", "*.CSV")
+    match_path = os.path.join(
+        "{data_type}", "{account}", "csv", "{protocol}_{pr_or_qc}_C_*.CSV"
+    )
     spec = SearchSpec(
         file_type=FileType.Extract, root_dir=root_dir, match_paths=[match_path],
     )

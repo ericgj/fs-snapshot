@@ -1,3 +1,4 @@
+from functools import reduce
 import hashlib
 import os
 import os.path
@@ -6,8 +7,10 @@ import re
 from typing import Optional, Dict, Callable, Generator
 
 from model.file_info import FileInfo, Digest
+from util import re_
 
-REGEXP_VAR = re.compile("(\{[a-zA-Z0-9_]+\}|\*\*|\*)", flags=re.I + re.A)
+REGEXP_VAR = re.compile("(\{[a-zA-Z0-9_]+\})", flags=re.I + re.A)
+REGEXP_VAR_OR_GLOB = re.compile("(\{[a-zA-Z0-9_]+\}|\*\*|\*)", flags=re.I + re.A)
 
 
 def search(
@@ -63,6 +66,12 @@ class Matcher:
 
 
 def compiled_match_expr(expr: str) -> re.Pattern:
+    def _build_segment(segment, pair):
+        pre, s = pair
+        return "".join(
+            [segment, re.escape(pre), "" if len(s) == 0 else _parse_var_or_glob(s)]
+        )
+
     def _parse_var_or_glob(s: str) -> str:
         if s == "**":
             return ".+"
@@ -72,20 +81,14 @@ def compiled_match_expr(expr: str) -> re.Pattern:
             return f"(?P<{s[1:-1]}>[^{re.escape(os.sep)}]+)"
 
     def _parse_segment(s: str) -> str:
-        matches = re.search(REGEXP_VAR, s)
-        if matches is None:
+        subsegments = re_.find_match_segments(REGEXP_VAR_OR_GLOB, s)
+        if len(subsegments) == 0:  # no match in segment, parse as literal
             return re.escape(s)
-        return "".join(
-            [
-                re.escape(matches.string[: matches.start(1)])
-                + _parse_var_or_glob(m)
-                + re.escape(matches.string[matches.end(1) :])
-                for m in matches.groups()
-            ]
-        )
+        else:
+            return reduce(_build_segment, subsegments, "")
 
     segments = expr.split(os.sep)
-    return re.compile(
-        re.escape(os.sep).join([_parse_segment(segment) for segment in segments]),
-        flags=re.A + re.I,
+    parsed_expr = re.escape(os.sep).join(
+        [_parse_segment(segment) for segment in segments]
     )
+    return re.compile(parsed_expr, flags=re.A + re.I,)
