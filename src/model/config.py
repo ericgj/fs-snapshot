@@ -8,7 +8,7 @@ class Config:
     monitor_db_root_dir: str
     monitor_db_base_name: str
     monitor_db_import_table: str
-    monitor_db_study_file_table: str
+    monitor_db_file_info_table: str
 
     @property
     def monitor_db_file(self):

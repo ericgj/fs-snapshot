@@ -7,11 +7,11 @@ Digest = bytes
 
 @dataclass
 class FileInfo:
+    digest: Digest
+    file_name: str
     created: float
     modified: float
-    file_name: str
     size: int
-    digest: Digest
     archived: bool
     metadata: Dict[str, str]
 

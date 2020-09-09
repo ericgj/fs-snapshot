@@ -4,6 +4,13 @@ from typing import Optional, Tuple, List
 
 
 def find_match_segments(expr: re.Pattern, s: str) -> List[Tuple[str, str]]:
+    """
+    Returns a list of `(pre-match, match)` strings representing each 
+    non-matching and matching segment of the original string, i.e. segmenting 
+    the entire original string into pairs of unmatched bits and matched bits. 
+    Note match _groups_ are ignored, this deals just with the whole match.
+    """
+
     def _pairs_to_segments(a, b):
         a_span = None if a is None else a.span()
         b_span = None if b is None else b.span()
@@ -25,6 +32,15 @@ def find_match_segments(expr: re.Pattern, s: str) -> List[Tuple[str, str]]:
 def find_match_pairs(
     expr: re.Pattern, s: str
 ) -> List[Tuple[Optional[re.Match], Optional[re.Match]]]:
+    """
+    Returns each pair of matches of expr in s, padded with a None at the
+    start and None at the end:  [(None, m1), (m1, m2), (m2, m3), (m3, None)]
+    You can then use this to process each non-matching and matching segment
+    of the original string in order (see `find_match_segments` above).
+    There's probably a way to do this with re.Match objects themselves 
+    somehow, but they are quite poorly documented...
+    """
+
     def _paired(acc, match):
         pairs, last = acc
         pairs.append((last, match))

@@ -1,62 +1,103 @@
 import sqlite3
 from time import time
 from uuid import uuid4
-from typing import Optional, Iterable, Any, Tuple
+from typing import Optional, Iterable, Any, Tuple, Dict, List
 
 from adapter import db
-from model.study_file import StudyFile
+from model.file_info import FileInfo
 
 
 class Monitor:
-    def __init__(self, *, import_table: str, study_file_table: str):
+    def __init__(self, *, import_table: str, file_info_table: str):
         self.import_table = import_table
-        self.study_file_table = study_file_table
+        self.file_info_table = file_info_table
 
-    def get_import_id(self):
-        return uuid4().bytes
-
-    def import_study_files(
-        self,
-        conn: sqlite3.Connection,
-        files: Iterable[StudyFile],
-        id: Optional[bytes] = None,
+    def create_import(
+        self, conn: sqlite3.Connection, tags: Dict[str, str] = {}
     ) -> bytes:
-        if id is None:
-            id = uuid4().bytes
-        ts = time()
+        id = self.get_import_id()
         with conn:
-            self.init_import(conn, id, ts)
-            self.delete_file_info(conn, id)
-            self.insert_file_info(conn, id, files)
+            self.init_tables(conn)
+            ts = time()
+            self.init_import(conn, id, ts, tags)
+            self.delete_file_infos(conn, id)
         return id
+
+    def import_files(
+        self, conn: sqlite3.Connection, id: bytes, files: Iterable[FileInfo]
+    ):
+        with conn:
+            self.insert_file_infos(conn, id, files)
+
+    def fetch_imported_files(
+        self, conn: sqlite3.Connection, id: bytes
+    ) -> Optional[Tuple[float, Dict[str, str], List[FileInfo]]]:
+        rows = self.select_imported_file_infos(conn, id)
+        if len(rows) == 0:
+            return None
+        ts = float(rows[0]["import_timestamp"])
+        tags = deserialized_tags(str(rows[0]["import_tags"]))
+        return (
+            ts,
+            tags,
+            [
+                FileInfo(
+                    digest=bytes(row["digest"]),
+                    file_name=str(row["file_name"]),
+                    created=float(row["created"]),
+                    modified=float(row["modified"]),
+                    size=int(row["size"]),
+                    archived=True if int(row["archived"]) == 1 else False,
+                    metadata=deserialized_tags(str(row["tags"])),
+                )
+                for row in rows
+            ],
+        )
+
+    def get_import_id(self) -> bytes:  # impure
+        return uuid4().bytes
 
     def init_tables(self, conn: sqlite3.Connection):
         self.init_import_table(conn)
-        self.init_study_file_table(conn)
+        self.init_file_info_table(conn)
 
     def init_import_table(self, conn: sqlite3.Connection):
         sql = sql_script_init_import_table(self.import_table)
         db.execute_script(conn, sql)
 
-    def init_study_file_table(self, conn: sqlite3.Connection):
-        sql = sql_script_init_study_file_table(
-            study_file_table=self.study_file_table, import_table=self.import_table,
+    def init_file_info_table(self, conn: sqlite3.Connection):
+        sql = sql_script_init_file_info_table(
+            file_info_table=self.file_info_table, import_table=self.import_table,
         )
         db.execute_script(conn, sql)
 
-    def init_import(self, conn: sqlite3.Connection, id: bytes, timestamp: float):
-        sql, params = sql_insert_import(self.import_table, id, int(timestamp))
-        db.execute(conn, sql, params)
-
-    def delete_file_info(self, conn: sqlite3.Connection, id: bytes):
-        sql, params = sql_delete_file_info(self.study_file_table, id)
-        db.execute(conn, sql, params)
-
-    def insert_file_info(
-        self, conn: sqlite3.Connection, id: bytes, files: Iterable[StudyFile]
+    def init_import(
+        self,
+        conn: sqlite3.Connection,
+        id: bytes,
+        timestamp: float,
+        tags: Dict[str, str] = {},
     ):
-        sql, params = sql_insert_file_info(self.study_file_table, id, files)
+        sql, params = sql_insert_import(self.import_table, id, int(timestamp), tags)
+        db.execute(conn, sql, params)
+
+    def delete_file_infos(self, conn: sqlite3.Connection, id: bytes):
+        sql, params = sql_delete_file_info(self.file_info_table, id)
+        db.execute(conn, sql, params)
+
+    def insert_file_infos(
+        self, conn: sqlite3.Connection, id: bytes, files: Iterable[FileInfo]
+    ):
+        sql, params = sql_insert_file_info(self.file_info_table, id, files)
         db.execute_many(conn, sql, params)
+
+    def select_imported_file_infos(
+        self, conn: sqlite3.Connection, id: bytes
+    ) -> List[sqlite3.Row]:
+        sql, params = sql_select_imported_file_infos(
+            self.file_info_table, self.import_table, id
+        )
+        return db.select(conn, sql, params)
 
 
 def sql_script_init_import_table(import_table: str) -> str:
@@ -66,113 +107,133 @@ def sql_script_init_import_table(import_table: str) -> str:
 CREATE TABLE IF NOT EXISTS {import_table_literal}
     ( `id` BYTES PRIMARY KEY
     , `timestamp` INT
+    , `tags` TEXT
     )
 ;
 CREATE INDEX IF NOT EXISTS {index_literal} ON {import_table_literal} (`timestamp`);
     """
 
 
-def sql_script_init_study_file_table(
-    *, study_file_table: str, import_table: str
-) -> str:
-    study_file_table_literal = db.name_literal(study_file_table)
+def sql_script_init_file_info_table(*, file_info_table: str, import_table: str) -> str:
+    file_info_table_literal = db.name_literal(file_info_table)
     import_table_literal = db.name_literal(import_table)
-    file_type_index_literal = db.name_literal(f"{study_file_table}_file_type")
-    digest_index_literal = db.name_literal(f"{study_file_table}_digest")
-    file_name_index_literal = db.name_literal(f"{study_file_table}_file_name")
-    data_type_index_literal = db.name_literal(f"{study_file_table}_data_type")
-    client_index_literal = db.name_literal(f"{study_file_table}_client")
-    protocol_index_literal = db.name_literal(f"{study_file_table}_protocol")
-    account_index_literal = db.name_literal(f"{study_file_table}_account")
+    digest_index_literal = db.name_literal(f"{file_info_table}_digest")
+    file_name_index_literal = db.name_literal(f"{file_info_table}_file_name")
     return f"""
-CREATE TABLE IF NOT EXISTS {study_file_table_literal}
-    ( `file_type` TEXT NOT NULL
-    , `digest` BYTES NOT NULL
+CREATE TABLE IF NOT EXISTS {file_info_table_literal}
+    ( `digest` BYTES NOT NULL
     , `file_name` TEXT NOT NULL
     , `created` INT NOT NULL
     , `modified` INT NOT NULL
     , `size` INT NOT NULL
     , `archived` TINYINT NOT NULL
-    , `data_type` TEXT NOT NULL
-    , `client` TEXT NULL
-    , `protocol` TEXT NULL
-    , `account` TEXT NULL
+    , `tags` TEXT NULL
     , `import_id` BYTES NOT NULL
     , FOREIGN KEY(`import_id`) REFERENCES {import_table_literal}(`id`)
     )
 ;
-CREATE INDEX IF NOT EXISTS {file_type_index_literal} ON {study_file_table_literal} (`file_type`);
-CREATE INDEX IF NOT EXISTS {digest_index_literal} ON {study_file_table_literal} (`digest`);
-CREATE INDEX IF NOT EXISTS {file_name_index_literal} ON {study_file_table_literal} (`file_name`);
-CREATE INDEX IF NOT EXISTS {data_type_index_literal} ON {study_file_table_literal} (`data_type`);
-CREATE INDEX IF NOT EXISTS {client_index_literal} ON {study_file_table_literal} (`client`);
-CREATE INDEX IF NOT EXISTS {protocol_index_literal} ON {study_file_table_literal} (`protocol`);
-CREATE INDEX IF NOT EXISTS {account_index_literal} ON {study_file_table_literal} (`account`);
+CREATE INDEX IF NOT EXISTS {digest_index_literal} ON {file_info_table_literal} (`digest`);
+CREATE INDEX IF NOT EXISTS {file_name_index_literal} ON {file_info_table_literal} (`file_name`);
     """
 
 
 def sql_insert_import(
-    import_table: str, id: bytes, timestamp: int
+    import_table: str, id: bytes, timestamp: int, tags: Dict[str, str],
 ) -> Tuple[str, Iterable[Any]]:
     import_table_literal = db.name_literal(import_table)
     return (
         f"""
-INSERT INTO {import_table_literal} (`id`,`timestamp`)
-    VALUES (?, ?)
+INSERT INTO {import_table_literal} (`id`,`timestamp`, `tags`)
+    VALUES (?, ?, ?)
 ;
     """,
-        (id, timestamp),
+        (id, timestamp, serialized_tags(tags)),
     )
 
 
-def sql_delete_file_info(study_file_table: str, id: bytes) -> Tuple[str, Iterable[Any]]:
-    study_file_table_literal = db.name_literal(study_file_table)
+def sql_delete_file_info(file_info_table: str, id: bytes) -> Tuple[str, Iterable[Any]]:
+    file_info_table_literal = db.name_literal(file_info_table)
     return (
         f"""
-DELETE FROM {study_file_table_literal} WHERE `import_id` = ? 
+DELETE FROM {file_info_table_literal} WHERE `import_id` = ? 
     """,
         (id,),
     )
 
 
 def sql_insert_file_info(
-    study_file_table: str, id: bytes, files: Iterable[StudyFile]
+    file_info_table: str, id: bytes, files: Iterable[FileInfo]
 ) -> Tuple[str, Iterable[Iterable[Any]]]:
-    study_file_table_literal = db.name_literal(study_file_table)
+    file_info_table_literal = db.name_literal(file_info_table)
     return (
         f"""
-INSERT INTO {study_file_table_literal} 
-    ( `file_type`
-    , `digest`
+INSERT INTO {file_info_table_literal} 
+    ( `digest`
     , `file_name`
     , `created`
     , `modified`
     , `size`
     , `archived`
-    , `data_type`
-    , `client`
-    , `protocol`
-    , `account`
+    , `tags`
     , `import_id`
     )  VALUES
-    ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
+    ( ?, ?, ?, ?, ?, ?, ?, ? )
 ;
     """,
         (
             (
-                f.file_type.name,
-                f.file.digest,
-                f.file.file_name,
-                f.file.created,
-                f.file.modified,
-                f.file.size,
-                1 if f.file.archived else 0,
-                f.data_type,
-                f.client,
-                f.protocol,
-                f.account,
+                f.digest,
+                f.file_name,
+                f.created,
+                f.modified,
+                f.size,
+                1 if f.archived else 0,
+                serialized_tags(f.metadata),
                 id,
             )
             for f in files
         ),
     )
+
+
+def sql_select_imported_file_infos(
+    file_info_table: str, import_table: str, id: bytes
+) -> Tuple[str, Iterable[Any]]:
+    import_table_literal = db.name_literal(import_table)
+    file_info_table_literal = db.name_literal(file_info_table)
+    return (
+        f"""
+SELECT a.*
+     , b.`timestamp` AS `import_timestamp`
+     , b.`tags` as `import_tags`
+FROM {file_info_table_literal} AS a 
+    INNER JOIN {import_table_literal} AS b
+    ON a.`import_id` = b.`id`
+WHERE b.`id` = ?
+;
+    """,
+        (id,),
+    )
+
+
+def serialized_tags(tags: Dict[str, str]) -> str:
+    """ 
+    Note: colons used as delimiters because they are not allowed in file paths, 
+    which is where these tags are ultimately sourced from
+    """
+    if len(tags) == 0:
+        return ""
+    return (
+        "::" + "::".join([f"{k.lower().strip()}:{v}" for (k, v) in tags.items()]) + "::"
+    )
+
+
+def deserialized_tags(tag_string: str) -> Dict[str, str]:
+    def _deserialize_tag(tag: str) -> Tuple[str, str]:
+        parts = tag.split(":")
+        if len(parts) != 2:
+            raise ValueError(f"Bad tag format: {tag}")
+        return (parts[0], parts[1])
+
+    tags = tag_string.split("::")
+    return dict([_deserialize_tag(tag) for tag in tags if len(tag) > 0])
