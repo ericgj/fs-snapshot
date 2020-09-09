@@ -1,4 +1,6 @@
+from glob import glob
 import os.path
+import sqlite3
 
 from command import save
 from model.config import Config
@@ -17,12 +19,25 @@ CONFIG = Config(
 
 def test_save_single_match_path():
     remove_db_files()
+    root_dir = os.path.join(ROOT_DIR, "data_types")
+    match_path = os.path.join("{data_type}", "{account}", "csv", "*.CSV")
     spec = SearchSpec(
-        file_type=FileType.Extract,
-        root_dir=os.path.join(ROOT_DIR, "data_types"),
-        match_paths=[os.path.join("{data_type}", "{account}", "csv", "*.CSV")],
+        file_type=FileType.Extract, root_dir=root_dir, match_paths=[match_path],
     )
     save.main(CONFIG, spec)
+
+    exp = len([f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))])
+    assert_n_files_saved(exp)
+
+
+def assert_n_files_saved(exp: int):
+    conn = sqlite3.connect(CONFIG.monitor_db_file)
+    c = conn.execute("SELECT COUNT(*) FROM `study_file`;")
+    row = c.fetchone()
+    if row is None:
+        assert False, "DB error: unable to select count"
+    act = int(row[0])
+    assert exp == act
 
 
 def remove_db_files():
