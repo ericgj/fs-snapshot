@@ -6,20 +6,25 @@ import platform
 import re
 import sqlite3
 import subprocess
-from typing import Any, Optional, Generator, Iterable, Callable, Set, List
+from typing import Any, Protocol, Optional, Generator, Iterable, Callable, Set, List
 
 PLATFORM_SYSTEM = platform.system().lower()
 
 REGEXP_INTERNAL_QUOTE = re.compile(r"^'|([^'])'")
 
 
-class OperationalError(Exception):
-    def __init__(self, err, sql, params=None):
+# ------------------------------------------------------------------------------
+# Error handling
+# ------------------------------------------------------------------------------
+
+
+class SqliteError(Exception):
+    def __init__(self, err: sqlite3.Error, sql: str, params=None):
         self.err = err
         self.sql = sql
         self.params = params
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "\n".join(
             [
                 str(self.err),
@@ -30,6 +35,31 @@ class OperationalError(Exception):
                 "-----------------------------------------------",
             ]
         )
+
+
+class HasLogger(Protocol):
+    logger: logging.Logger
+
+
+def log_errors(fn):
+    """
+    Decorator for methods of objects with `logger` property defined
+    """
+
+    def _log_errors(self: HasLogger, *args, **kwargs):
+        try:
+            return fn(self, *args, **kwargs)
+        except SqliteError as e:
+            self.logger.error(f"{e.__class__.__name__}: {e}")
+            raise e
+        except sqlite3.Error as e:
+            self.logger.error(f"{e.__class__.__name__}: {e}")
+            raise e
+        except sqlite3.Warning as w:
+            self.logger.warning(str(w))
+            raise w
+
+    return _log_errors
 
 
 def connect(db_file: str, log_file: Optional[str] = None) -> sqlite3.Connection:
@@ -130,8 +160,8 @@ def _execute(
 ) -> sqlite3.Cursor:
     try:
         return conn.execute(sql, params)
-    except sqlite3.OperationalError as e:
-        raise OperationalError(e, sql, params)
+    except sqlite3.Error as e:
+        raise SqliteError(e, sql, params)
 
 
 def _executemany(
@@ -139,15 +169,15 @@ def _executemany(
 ) -> sqlite3.Cursor:
     try:
         return conn.executemany(sql, params)
-    except sqlite3.OperationalError as e:
-        raise OperationalError(e, sql, params)
+    except sqlite3.Error as e:
+        raise SqliteError(e, sql, params)
 
 
 def _executescript(conn: sqlite3.Connection, sql: str) -> sqlite3.Cursor:
     try:
         return conn.executescript(sql)
-    except sqlite3.OperationalError as e:
-        raise OperationalError(e, sql)
+    except sqlite3.Error as e:
+        raise SqliteError(e, sql)
 
 
 def archive(

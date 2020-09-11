@@ -17,3 +17,7 @@ class Config:
     @property
     def monitor_db_log_file(self):
         return self.monitor_db_file + ".log"
+
+    @property
+    def monitor_db_log_name(self):
+        return os.path.splitext(self.monitor_db_log_file)[0]

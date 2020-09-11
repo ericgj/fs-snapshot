@@ -1,17 +1,46 @@
+from dataclasses import dataclass
+from logging import Logger
 import sqlite3
 from time import time
 from uuid import uuid4
 from typing import Optional, Iterable, Any, Tuple, Dict, List
 
 from adapter import db
-from model.file_info import FileInfo
+from model import file_info
+
+
+class MonitorDbFileImportNotFound(Exception):
+    pass
+
+
+class MonitorDbFileImportCompareNoChanges(Exception):
+    pass
+
+
+""" 
+Note: forward-slashes used as delimiters because they are not allowed in file
+paths in either *nix or Windows - which is where these tags are ultimately
+sourced from. 
+"""
+TAG_DELIMITER = "/"
+TAG_VALUE_DELIMITER = ":"
+
+
+@dataclass
+class FileImport:
+    id: bytes
+    timestamp: float
+    tags: Dict[str, str]
+    files: List[file_info.FileInfo]
 
 
 class Monitor:
-    def __init__(self, *, import_table: str, file_info_table: str):
+    def __init__(self, *, import_table: str, file_info_table: str, logger: Logger):
         self.import_table = import_table
         self.file_info_table = file_info_table
+        self.logger = logger
 
+    @db.log_errors
     def create_import(
         self, conn: sqlite3.Connection, tags: Dict[str, str] = {}
     ) -> bytes:
@@ -23,36 +52,47 @@ class Monitor:
             self.delete_file_infos(conn, id)
         return id
 
+    @db.log_errors
     def import_files(
-        self, conn: sqlite3.Connection, id: bytes, files: Iterable[FileInfo]
+        self, conn: sqlite3.Connection, id: bytes, files: Iterable[file_info.FileInfo]
     ):
         with conn:
             self.insert_file_infos(conn, id, files)
 
-    def fetch_imported_files(
-        self, conn: sqlite3.Connection, id: bytes
-    ) -> Optional[Tuple[float, Dict[str, str], List[FileInfo]]]:
+    @db.log_errors
+    def fetch_file_import_compare_latest(
+        self, conn: sqlite3.Connection, id: bytes,
+    ) -> Tuple[bytes, List[file_info.CompareStates]]:
+        latest_id = self.fetch_latest_import_id(conn, id)
+        if latest_id is None:
+            raise MonitorDbFileImportNotFound(id)  # should not reach
+        if latest_id == id:
+            raise MonitorDbFileImportCompareNoChanges(id)
+
+        rows = self.select_file_import_compare(conn, id, latest_id)
+        return (latest_id, [deserialized_file_info_compare(row) for row in rows])
+
+    def fetch_file_import(self, conn: sqlite3.Connection, id: bytes) -> FileImport:
         rows = self.select_imported_file_infos(conn, id)
-        if len(rows) == 0:
-            return None
-        ts = float(rows[0]["import_timestamp"])
-        tags = deserialized_tags(str(rows[0]["import_tags"]))
-        return (
-            ts,
-            tags,
-            [
-                FileInfo(
-                    digest=bytes(row["digest"]),
-                    file_name=str(row["file_name"]),
-                    created=float(row["created"]),
-                    modified=float(row["modified"]),
-                    size=int(row["size"]),
-                    archived=True if int(row["archived"]) == 1 else False,
-                    metadata=deserialized_tags(str(row["tags"])),
-                )
-                for row in rows
-            ],
-        )
+        file_import = deserialized_file_import(rows)
+        if file_import is None:
+            raise MonitorDbFileImportNotFound(id)
+        return file_import
+
+    def fetch_import(self, conn: sqlite3.Connection, id: bytes) -> FileImport:
+        sql, params = sql_fetch_import(self.import_table, id)
+        try:
+            row = db.select_one(conn, sql, params)
+        except IndexError:
+            raise MonitorDbFileImportNotFound(id)
+        file_import = deserialized_import(row)
+        return file_import
+
+    def fetch_latest_import_id(
+        self, conn: sqlite3.Connection, id: bytes
+    ) -> Optional[bytes]:
+        file_import = self.fetch_import(conn, id)
+        return self.fetch_latest_import_id_for_tags(conn, file_import.tags)
 
     def get_import_id(self) -> bytes:  # impure
         return uuid4().bytes
@@ -86,7 +126,7 @@ class Monitor:
         db.execute(conn, sql, params)
 
     def insert_file_infos(
-        self, conn: sqlite3.Connection, id: bytes, files: Iterable[FileInfo]
+        self, conn: sqlite3.Connection, id: bytes, files: Iterable[file_info.FileInfo]
     ):
         sql, params = sql_insert_file_info(self.file_info_table, id, files)
         db.execute_many(conn, sql, params)
@@ -98,6 +138,29 @@ class Monitor:
             self.file_info_table, self.import_table, id
         )
         return db.select(conn, sql, params)
+
+    def fetch_latest_import_id_for_tags(
+        self, conn: sqlite3.Connection, tags: Dict[str, str]
+    ) -> Optional[bytes]:
+        sql, params = sql_select_latest_import_for_tags(self.import_table, tags)
+        try:
+            row = db.select_one(conn, sql, params)
+            return bytes(row["id"])
+        except IndexError:
+            return None
+
+    def select_file_import_compare(
+        self, conn: sqlite3.Connection, prev_id: bytes, next_id: bytes
+    ) -> List[sqlite3.Row]:
+        sql, params = sql_select_file_import_compare(
+            self.file_info_table, prev_id, next_id
+        )
+        return db.select(conn, sql, params)
+
+
+# ------------------------------------------------------------------------------
+# SQL
+# ------------------------------------------------------------------------------
 
 
 def sql_script_init_import_table(import_table: str) -> str:
@@ -162,7 +225,7 @@ DELETE FROM {file_info_table_literal} WHERE `import_id` = ?
 
 
 def sql_insert_file_info(
-    file_info_table: str, id: bytes, files: Iterable[FileInfo]
+    file_info_table: str, id: bytes, files: Iterable[file_info.FileInfo]
 ) -> Tuple[str, Iterable[Iterable[Any]]]:
     file_info_table_literal = db.name_literal(file_info_table)
     return (
@@ -196,6 +259,18 @@ INSERT INTO {file_info_table_literal}
     )
 
 
+def sql_fetch_import(import_table: str, id: bytes) -> Tuple[str, Iterable[Any]]:
+    import_table_literal = db.name_literal(import_table)
+    return (
+        f"""
+SELECT `id`, `timestamp`, `tags`
+FROM {import_table_literal}
+WHERE `id` = ?
+    """,
+        (id,),
+    )
+
+
 def sql_select_imported_file_infos(
     file_info_table: str, import_table: str, id: bytes
 ) -> Tuple[str, Iterable[Any]]:
@@ -216,24 +291,303 @@ WHERE b.`id` = ?
     )
 
 
-def serialized_tags(tags: Dict[str, str]) -> str:
-    """ 
-    Note: colons used as delimiters because they are not allowed in file paths, 
-    which is where these tags are ultimately sourced from
-    """
-    if len(tags) == 0:
-        return ""
+def sql_select_latest_import_for_tags(
+    import_table: str, tags: Dict[str, str]
+) -> Tuple[str, Iterable[Any]]:
+    import_table_literal = db.name_literal(import_table)
+    where_literal = " AND ".join(["tags LIKE ?" for _ in range(len(tags))])
+    if len(where_literal) == 0:
+        where_literal = "`tags` IS NULL OR LENGTH(`tags`) = 0"
     return (
-        "::" + "::".join([f"{k.lower().strip()}:{v}" for (k, v) in tags.items()]) + "::"
+        f"""
+SELECT `id`, `timestamp`, `tags`
+FROM {import_table_literal}
+WHERE {where_literal}
+ORDER BY `timestamp` DESC
+LIMIT 1
+;
+    """,
+        [
+            f"%{TAG_DELIMITER}{serialized_tag(k,v)}{TAG_DELIMITER}%"
+            for (k, v) in tags.items()
+        ],
     )
 
 
-def deserialized_tags(tag_string: str) -> Dict[str, str]:
-    def _deserialize_tag(tag: str) -> Tuple[str, str]:
-        parts = tag.split(":")
-        if len(parts) != 2:
-            raise ValueError(f"Bad tag format: {tag}")
-        return (parts[0], parts[1])
+def sql_select_file_import_compare(
+    file_info_table: str, prev_id: bytes, next_id: bytes
+):
+    file_info_table_literal = db.name_literal(file_info_table)
+    return (
+        f"""
+    /* IN PREV ONLY */
+SELECT prev.`digest` AS `digest_prev`
+     , prev.`file_name` AS `file_name_prev`
+     , prev.`created` AS `created_prev`
+     , prev.`modified` AS `modified_prev`
+     , prev.`size` AS `size_prev`
+     , prev.`archived` AS `archived_prev`
+     , prev.`tags` AS `tags_prev`
+     , prev.`import_id` AS `import_id_prev`
+     , next.`digest` AS `digest_next`
+     , next.`file_name` AS `file_name_next`
+     , next.`created` AS `created_next`
+     , next.`modified` AS `modified_next`
+     , next.`size` AS `size_next`
+     , next.`archived` AS `archived_next`
+     , next.`tags` AS `tags_next`
+     , next.`import_id` AS `import_id_next`
+     , 0 AS __copied__
+FROM {file_info_table_literal} AS prev 
+    LEFT JOIN {file_info_table_literal} AS next
+        ON prev.`digest` = next.`digest` OR prev.`file_name` = next.`file_name`
+WHERE next.`digest` IS NULL
+  AND prev.`import_id` = ? 
+  AND next.`import_id` = ?
 
-    tags = tag_string.split("::")
-    return dict([_deserialize_tag(tag) for tag in tags if len(tag) > 0])
+UNION
+    /* IN BOTH, RENAMED */
+SELECT prev.`digest` AS `digest_prev`
+     , prev.`file_name` AS `file_name_prev`
+     , prev.`created` AS `created_prev`
+     , prev.`modified` AS `modified_prev`
+     , prev.`size` AS `size_prev`
+     , prev.`archived` AS `archived_prev`
+     , prev.`tags` AS `tags_prev`
+     , prev.`import_id` AS `import_id_prev`
+     , next.`digest` AS `digest_next`
+     , next.`file_name` AS `file_name_next`
+     , next.`created` AS `created_next`
+     , next.`modified` AS `modified_next`
+     , next.`size` AS `size_next`
+     , next.`archived` AS `archived_next`
+     , next.`tags` AS `tags_next`
+     , next.`import_id` AS `import_id_next`
+     , 0 AS __copied__
+FROM {file_info_table_literal} AS prev 
+    INNER JOIN {file_info_table_literal} AS next
+        ON prev.`digest` = next.`digest` AND NOT prev.`file_name` = next.`file_name`
+WHERE prev.`import_id` = ? 
+  AND next.`import_id` = ?
+  AND prev.`digest` NOT IN (
+      SELECT a.`digest` 
+      FROM {file_info_table_literal} AS a
+          INNER JOIN {file_info_table_literal} AS b
+              ON a.`digest` = b.`digest` AND a.`file_name` = b.`file_name`
+      WHERE a.`import_id` = ?
+      AND b.`import_id` = ?
+  )
+
+UNION
+    /* IN BOTH, COPIED */
+SELECT prev.`digest` AS `digest_prev`
+     , prev.`file_name` AS `file_name_prev`
+     , prev.`created` AS `created_prev`
+     , prev.`modified` AS `modified_prev`
+     , prev.`size` AS `size_prev`
+     , prev.`archived` AS `archived_prev`
+     , prev.`tags` AS `tags_prev`
+     , prev.`import_id` AS `import_id_prev`
+     , next.`digest` AS `digest_next`
+     , next.`file_name` AS `file_name_next`
+     , next.`created` AS `created_next`
+     , next.`modified` AS `modified_next`
+     , next.`size` AS `size_next`
+     , next.`archived` AS `archived_next`
+     , next.`tags` AS `tags_next`
+     , next.`import_id` AS `import_id_next`
+     , 1 AS __copied__
+FROM {file_info_table_literal} AS prev 
+    INNER JOIN {file_info_table_literal} AS next
+        ON prev.`digest` = next.`digest` AND NOT prev.`file_name` = next.`file_name`
+WHERE prev.`import_id` = ? 
+  AND next.`import_id` = ?
+  AND prev.`digest` IN (
+      SELECT a.`digest` 
+      FROM {file_info_table_literal} AS a
+          INNER JOIN {file_info_table_literal} AS b
+              ON a.`digest` = b.`digest` AND a.`file_name` = b.`file_name`
+      WHERE a.`import_id` = ?
+      AND b.`import_id` = ?
+  )
+
+UNION
+    /* IN BOTH, MODIFIED */
+SELECT prev.`digest` AS `digest_prev`
+     , prev.`file_name` AS `file_name_prev`
+     , prev.`created` AS `created_prev`
+     , prev.`modified` AS `modified_prev`
+     , prev.`size` AS `size_prev`
+     , prev.`archived` AS `archived_prev`
+     , prev.`tags` AS `tags_prev`
+     , prev.`import_id` AS `import_id_prev`
+     , next.`digest` AS `digest_next`
+     , next.`file_name` AS `file_name_next`
+     , next.`created` AS `created_next`
+     , next.`modified` AS `modified_next`
+     , next.`size` AS `size_next`
+     , next.`archived` AS `archived_next`
+     , next.`tags` AS `tags_next`
+     , next.`import_id` AS `import_id_next`
+     , 0 AS __copied__
+FROM {file_info_table_literal} AS prev 
+    INNER JOIN {file_info_table_literal} AS next
+        ON prev.`file_name` = next.`file_name` AND NOT prev.`digest` = next.`digest`
+WHERE prev.`import_id` = ? 
+  AND next.`import_id` = ?
+
+UNION
+    /* IN BOTH, NO CHANGE */
+SELECT prev.`digest` AS `digest_prev`
+     , prev.`file_name` AS `file_name_prev`
+     , prev.`created` AS `created_prev`
+     , prev.`modified` AS `modified_prev`
+     , prev.`size` AS `size_prev`
+     , prev.`archived` AS `archived_prev`
+     , prev.`tags` AS `tags_prev`
+     , prev.`import_id` AS `import_id_prev`
+     , next.`digest` AS `digest_next`
+     , next.`file_name` AS `file_name_next`
+     , next.`created` AS `created_next`
+     , next.`modified` AS `modified_next`
+     , next.`size` AS `size_next`
+     , next.`archived` AS `archived_next`
+     , next.`tags` AS `tags_next`
+     , next.`import_id` AS `import_id_next`
+     , 0 AS __copied__
+FROM {file_info_table_literal} AS prev 
+    INNER JOIN {file_info_table_literal} AS next
+        ON prev.`digest` = next.`digest` AND prev.`file_name` = next.`file_name`
+WHERE prev.`import_id` = ? 
+  AND next.`import_id` = ?
+
+UNION
+    /* IN NEXT ONLY */
+SELECT prev.`digest` AS `digest_prev`
+     , prev.`file_name` AS `file_name_prev`
+     , prev.`created` AS `created_prev`
+     , prev.`modified` AS `modified_prev`
+     , prev.`size` AS `size_prev`
+     , prev.`archived` AS `archived_prev`
+     , prev.`tags` AS `tags_prev`
+     , prev.`import_id` AS `import_id_prev`
+     , next.`digest` AS `digest_next`
+     , next.`file_name` AS `file_name_next`
+     , next.`created` AS `created_next`
+     , next.`modified` AS `modified_next`
+     , next.`size` AS `size_next`
+     , next.`archived` AS `archived_next`
+     , next.`tags` AS `tags_next`
+     , next.`import_id` AS `import_id_next`
+     , 0 AS __copied__
+FROM {file_info_table_literal} AS next 
+    LEFT JOIN {file_info_table_literal} AS prev
+        ON next.`digest` = prev.`digest` OR next.`file_name` = prev.`file_name`
+WHERE prev.`digest` IS NULL
+  AND prev.`import_id` = ?
+  AND next.`import_id` = ?
+;
+        """,
+        (
+            prev_id,
+            next_id,
+            prev_id,
+            next_id,
+            prev_id,
+            next_id,
+            prev_id,
+            next_id,
+            prev_id,
+            next_id,
+            prev_id,
+            next_id,
+            prev_id,
+            next_id,
+            prev_id,
+            next_id,
+        ),
+    )
+
+
+# ------------------------------------------------------------------------------
+# Codecs
+# ------------------------------------------------------------------------------
+
+
+def deserialized_import(row: sqlite3.Row) -> FileImport:
+    id = bytes(row["id"])
+    ts = float(row["timestamp"])
+    tags = deserialized_tags(str(row["tags"]))
+    return FileImport(id=id, timestamp=ts, tags=tags, files=[],)
+
+
+def deserialized_file_import(rows: List[sqlite3.Row]) -> Optional[FileImport]:
+    if len(rows) == 0:
+        return None
+    id = bytes(rows[0]["id"])
+    ts = float(rows[0]["import_timestamp"])
+    tags = deserialized_tags(str(rows[0]["import_tags"]))
+    return FileImport(
+        id=id,
+        timestamp=ts,
+        tags=tags,
+        files=[deserialized_file_info(row) for row in rows],
+    )
+
+
+def deserialized_file_info(
+    row: sqlite3.Row, field_suffix: str = ""
+) -> file_info.FileInfo:
+    return file_info.FileInfo(
+        digest=bytes(row["digest" + field_suffix]),
+        file_name=str(row["file_name" + field_suffix]),
+        created=float(row["created" + field_suffix]),
+        modified=float(row["modified" + field_suffix]),
+        size=int(row["size" + field_suffix]),
+        archived=True if int(row["archived" + field_suffix]) == 1 else False,
+        metadata=deserialized_tags(str(row["tags" + field_suffix])),
+    )
+
+
+def deserialized_file_info_compare(row: sqlite3.Row) -> file_info.CompareStates:
+    if row["digest_prev"] is None and row["digest_next"] is not None:
+        return file_info.NewOnly(new=deserialized_file_info(row, field_suffix="_next"))
+    elif row["digest_prev"] is not None and row["digest_next"] is not None:
+        is_copy = True if int(row["__copied__"]) == 1 else False
+        return file_info.OriginalAndNew(
+            original=deserialized_file_info(row, field_suffix="_prev"),
+            new=deserialized_file_info(row, field_suffix="_next"),
+            is_copy=is_copy,
+        )
+    elif row["digest_prev"] is not None and row["digest_next"] is None:
+        return file_info.OriginalOnly(
+            original=deserialized_file_info(row, field_suffix="_next"),
+        )
+    else:
+        raise ValueError("Unrecognized query results")  # should not reach
+
+
+def serialized_tags(tags: Dict[str, str]) -> str:
+    if len(tags) == 0:
+        return ""
+    return (
+        TAG_DELIMITER
+        + TAG_DELIMITER.join([serialized_tag(k, tags[k]) for k in sorted(tags.keys())])
+        + TAG_DELIMITER
+    )
+
+
+def serialized_tag(key: str, value: str) -> str:
+    return f"{key.lower().strip()}{TAG_VALUE_DELIMITER}{value}"
+
+
+def deserialized_tags(tag_string: str) -> Dict[str, str]:
+    tags = tag_string.split(TAG_DELIMITER)
+    return dict([deserialize_tag(tag) for tag in tags if len(tag) > 0])
+
+
+def deserialize_tag(tag: str) -> Tuple[str, str]:
+    parts = tag.split(TAG_VALUE_DELIMITER)
+    if len(parts) != 2:
+        raise ValueError(f"Bad tag format: {tag}")
+    return (parts[0], parts[1])

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, replace
 import os.path
-from typing import Union, Optional, Iterable, Generator, Tuple, Dict
+from typing import Union, Optional, Iterable, Generator, Dict
 
 Digest = bytes
 
@@ -27,55 +27,169 @@ class FileInfo:
     def base_name(self):
         return os.path.basename(self.file_name)
 
+    def to_json(self):
+        return {
+            "$type": self.__class__.__name__,
+            "digest": self.digest.hex(),
+            "file_name": self.file_name,
+            "created": self.created,
+            "modified": self.modified,
+            "size": self.size,
+            "archived": self.archived,
+            "metadata": self.metadata,
+        }
+
+
+@dataclass
+class NewOnly:
+    new: FileInfo
+
+
+@dataclass
+class OriginalOnly:
+    original: FileInfo
+
+
+@dataclass
+class OriginalAndNew:
+    original: FileInfo
+    new: FileInfo
+    is_copy: bool
+
+
+CompareStates = Union[NewOnly, OriginalOnly, OriginalAndNew]
+
+
+@dataclass
+class Created:
+    new: FileInfo
+
+    def to_json(self):
+        return {
+            "$type": self.__class__.__name__,
+            "new": self.new.to_json(),
+        }
+
+
+@dataclass
+class Removed:
+    original: FileInfo
+
+    def to_json(self):
+        return {
+            "$type": self.__class__.__name__,
+            "original": self.original.to_json(),
+        }
+
+
+@dataclass
+class Copied:
+    original: FileInfo
+    copy: FileInfo
+
+    def to_json(self):
+        return {
+            "$type": self.__class__.__name__,
+            "original": self.original.to_json(),
+            "copy": self.copy.to_json(),
+        }
+
 
 @dataclass
 class Moved:
+    original: FileInfo
     dir_name: str
     metadata: Dict[str, str]
+
+    def to_json(self):
+        return {
+            "$type": self.__class__.__name__,
+            "original": self.original.to_json(),
+            "dir_name": self.dir_name,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
 class Renamed:
+    original: FileInfo
     base_name: str
     metadata: Dict[str, str]
+
+    def to_json(self):
+        return {
+            "$type": self.__class__.__name__,
+            "original": self.original.to_json(),
+            "base_name": self.base_name,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
 class Archived:
+    original: FileInfo
     dir_name: str
     metadata: Dict[str, str]
+
+    def to_json(self):
+        return {
+            "$type": self.__class__.__name__,
+            "original": self.original.to_json(),
+            "dir_name": self.dir_name,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
 class Modified:
+    original: FileInfo
     modified: float
+    size: int
     digest: Digest
 
+    def to_json(self):
+        return {
+            "$type": self.__class__.__name__,
+            "original": self.original.to_json(),
+            "modified": self.modified,
+            "size": self.size,
+            "digest": self.digest.hex(),
+        }
 
-class NoChange:
-    pass
+
+Action = Union[Created, Removed, Copied, Moved, Renamed, Archived, Modified]
 
 
-Action = Union[Moved, Renamed, Archived, Modified, NoChange]
-
-
-def diff_all(
-    pairs: Iterable[Tuple[FileInfo, FileInfo]]
-) -> Generator[Action, None, None]:
-    for (a, b) in pairs:
-        action = diff(a, b)
+def diff_all(compare_states: Iterable[CompareStates]) -> Generator[Action, None, None]:
+    for states in compare_states:
+        action = diff(states)
         if action is not None:
             yield action
-    return
 
 
-def diff(a: FileInfo, b: FileInfo) -> Optional[Action]:
+def diff(states: CompareStates) -> Optional[Action]:
+    if isinstance(states, OriginalOnly):
+        return Removed(original=states.original)
+
+    if isinstance(states, NewOnly):
+        return Created(new=states.new)
+
+    if isinstance(states, OriginalAndNew):
+        if states.is_copy:
+            return Copied(original=states.original, copy=states.new)
+        else:
+            return diff_file_info(states.original, states.new)
+
+    raise ValueError(f"Unknown statesStates type: {type(states)}")
+
+
+def diff_file_info(a: FileInfo, b: FileInfo) -> Optional[Action]:
     table = (a.digest == b.digest, a.file_name == b.file_name)
     if table == (False, False):
         return None  # should not reach in practice
 
     if table == (True, True):
-        return NoChange()
+        return None
 
     if table == (True, False):
         a_dir, a_name = a.dir_name, a.base_name
@@ -83,25 +197,25 @@ def diff(a: FileInfo, b: FileInfo) -> Optional[Action]:
         subtable = (a_dir == b_dir, a_name == b_name)
 
         if subtable == (True, True):
-            return NoChange()  # should never reach
+            return None  # should never reach
 
         if subtable == (False, True):
             if b.metadata.get("archive", None) is not None:
-                return Archived(dir_name=b_dir, metadata=b.metadata)
+                return Archived(original=a, dir_name=b_dir, metadata=b.metadata)
             else:
-                return Moved(dir_name=b_dir, metadata=b.metadata)
+                return Moved(original=a, dir_name=b_dir, metadata=b.metadata)
 
         if subtable == (True, False):
-            return Renamed(base_name=b_name, metadata=b.metadata)
+            return Renamed(original=a, base_name=b_name, metadata=b.metadata)
 
         if subtable == (False, False):
             if b.metadata.get("archive", None) is not None:
-                return Archived(dir_name=b_dir, metadata=b.metadata)
+                return Archived(original=a, dir_name=b_dir, metadata=b.metadata)
             else:
-                return Moved(dir_name=b_dir, metadata=b.metadata)
+                return Moved(original=a, dir_name=b_dir, metadata=b.metadata)
 
     if table == (False, True):
-        return Modified(modified=b.modified, digest=b.digest)
+        return Modified(original=a, modified=b.modified, size=b.size, digest=b.digest)
 
     return None  # unreachable
 
