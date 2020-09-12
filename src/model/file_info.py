@@ -200,7 +200,7 @@ def diff_file_info(a: FileInfo, b: FileInfo) -> Optional[Action]:
             return None  # should never reach
 
         if subtable == (False, True):
-            if b.metadata.get("archive", None) is not None:
+            if b.archived:
                 return Archived(original=a, dir_name=b_dir, metadata=b.metadata)
             else:
                 return Moved(original=a, dir_name=b_dir, metadata=b.metadata)
@@ -209,7 +209,7 @@ def diff_file_info(a: FileInfo, b: FileInfo) -> Optional[Action]:
             return Renamed(original=a, base_name=b_name, metadata=b.metadata)
 
         if subtable == (False, False):
-            if b.metadata.get("archive", None) is not None:
+            if b.archived:
                 return Archived(original=a, dir_name=b_dir, metadata=b.metadata)
             else:
                 return Moved(original=a, dir_name=b_dir, metadata=b.metadata)

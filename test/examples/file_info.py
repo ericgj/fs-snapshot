@@ -28,6 +28,25 @@ def list_of_examples(
     )
 
 
+def split_list_of_examples(
+    current_time: float, *, min_size: int = 1, max_size: int = None,
+) -> hyp.SearchStrategy:
+    return (
+        hyp.integers(min_value=min_size, max_value=max_size)
+        .flatmap(
+            lambda n: hyp.tuples(
+                hyp.just(n),
+                list_of_examples(
+                    current_time,
+                    min_size=n,
+                    max_size=(None if max_size is None else n + max_size),
+                ),
+            )
+        )
+        .map(lambda pair: (pair[1][: pair[0]], pair[1][pair[0] :]))
+    )
+
+
 def examples(
     current_time: float,
     *,
@@ -55,15 +74,25 @@ def examples(
 def with_changes(
     fn: Callable[[int, FileInfo], hyp.SearchStrategy]
 ) -> Callable[[Iterable[FileInfo]], hyp.SearchStrategy]:
-    def _with_changed_examples(
-        original_files: Iterable[FileInfo],
-    ) -> hyp.SearchStrategy:
+    def _with_changes(original_files: Iterable[FileInfo],) -> hyp.SearchStrategy:
         return hyp.tuples(
             hyp.just(original_files),
             hyp.tuples(*[fn(i, f) for (i, f) in enumerate(original_files)]).map(list),
         )
 
-    return _with_changed_examples
+    return _with_changes
+
+
+def with_copies(
+    fn: Callable[[int, FileInfo], hyp.SearchStrategy]
+) -> Callable[[Iterable[FileInfo]], hyp.SearchStrategy]:
+    def _with_copies(original_files: Iterable[FileInfo],) -> hyp.SearchStrategy:
+        return hyp.tuples(
+            hyp.just(original_files),
+            hyp.tuples(*[fn(i, f) for (i, f) in enumerate(original_files)]).map(list),
+        ).map(lambda pair: (pair[0], [f for f in pair[1] if f is not None]))
+
+    return _with_copies
 
 
 def then_was_moved(original: FileInfo,) -> hyp.SearchStrategy:
