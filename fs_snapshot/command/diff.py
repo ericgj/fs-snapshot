@@ -1,10 +1,13 @@
 import json
 import sys
-from typing import Iterable, TextIO
+from typing import Iterable, List, TextIO
 
 from .util import connect_store_db
+from ..adapter import logging
 from ..model.config import Config
 from ..model.file_info import Action, diff_all
+
+LOGGER = logging.get_logger(__name__)
 
 
 def main(
@@ -12,9 +15,16 @@ def main(
 ):
     conn, store_db = connect_store_db(config)
 
+    LOGGER.info(f"Start: from {import_id.hex()}")
     latest_id, compares = store_db.fetch_file_import_compare_latest(conn, import_id)
 
-    actions = diff_all(compares)
+    actions: List[Action] = list(diff_all(compares))
+
+    LOGGER.info(
+        f"""End: from {import_id.hex()} to {latest_id.hex()} 
+  {len(compares)} compared files
+  {len(actions)} resulting actions"""
+    )
 
     write_json(
         original_id=import_id, new_id=latest_id, actions=actions, target=sys.stdout

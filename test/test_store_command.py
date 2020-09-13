@@ -1,10 +1,12 @@
 from glob import glob
+import logging
 import os.path
 import sqlite3
 from typing import Iterable, List, Dict
 
 from fs_snapshot.command import store
 from fs_snapshot.adapter.store import deserialized_tags
+from fs_snapshot.adapter.logging import init_logger, init_db_logger
 from fs_snapshot.model.config import Config, ArchivedBy, NotArchived, ArchivedByMetadata
 
 ROOT_DIR = os.path.join("test", "fixtures", "store")
@@ -24,6 +26,12 @@ def test_store_single_match_path():
         archived_by=NotArchived(),
     )
 
+    init_logger(level=logging.DEBUG, log_file=config.log_file)
+    init_db_logger(
+        level=logging.DEBUG, 
+        name=config.store_db_log_name, 
+        log_file=config.store_db_log_file
+    )
     remove_db_files(config)
     store.main(config)
 
@@ -54,6 +62,12 @@ def test_store_multiple_match_paths():
         archived_by=ArchivedByMetadata('archive',{'archived', 'archive'}),
     )
 
+    init_logger(level=logging.DEBUG, log_file=config.log_file)
+    init_db_logger(
+        level=logging.DEBUG, 
+        name=config.store_db_log_name, 
+        log_file=config.store_db_log_file
+    )
     remove_db_files(config)
     store.main(config)
 
@@ -108,6 +122,7 @@ def build_config(*, root_dir: str, match_paths: List[str], metadata: Dict[str,st
     return Config(
         match_paths = match_paths,
         root_dir = root_dir,
+        log_file = os.path.join(ROOT_DIR, "output", "fs-snapshot.log"),
         store_db_file = os.path.join(ROOT_DIR, "output", 'fs-snapshot.sqlite'),
         store_db_import_table = '__import__',
         store_db_file_info_table = 'file_info',

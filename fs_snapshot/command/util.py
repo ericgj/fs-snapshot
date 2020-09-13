@@ -1,15 +1,15 @@
-import logging
-
 from ..adapter.store import Store
 from ..adapter import db
+from ..adapter import logging
 from ..model.config import Config
 
 
 def connect_store_db(config: Config):
-    conn = db.connect(config.store_db_file, config.store_db_log_file)
+    logger = logging.get_db_logger(config.store_db_log_name)
+    conn = db.connect(config.store_db_file, logger)
     store_db = Store(
         import_table=config.store_db_import_table,
         file_info_table=config.store_db_file_info_table,
-        logger=logging.getLogger(config.store_db_log_name),
+        logger=logger,
     )
     return (conn, store_db)

@@ -1,25 +1,52 @@
 from argparse import ArgumentParser
 from binascii import unhexlify
+import logging
+import sys
 
-from ..command import store as command_store
-from ..command import diff as command_diff
-from ..adapter import config_file
+from .command import store as command_store
+from .command import diff as command_diff
+from .adapter import config_file
+from .adapter.logging import init_logger, init_db_logger
+from .model.config import Config
 
 
 def main():
     program = ArgumentParser(description="Snapshot and diff file system info")
     common = ArgumentParser()
+    common.add_argument("spec", description="Spec name")
     common.add_argument(
         "-c", "--config", description="Config file", type=str, default="fs-snapshot.ini"
     )
-    common.add_argument("spec", description="Spec name")
+    common.add_argument(
+        "--debug", description="Debug messages to log", action="store_true",
+    )
     sub = program.add_subparsers(help="command help")
 
     store_parser(sub, [common])
     diff_parser(sub, [common])
 
     args = program.parse_args()
-    args.func(args)
+    config = get_config(args)
+
+    logger = init_logger(
+        level=logging.DEBUG if args.debug else logging.INFO, log_file=config.log_file
+    )
+
+    init_db_logger(
+        name=config.store_db_log_name,
+        level=logging.DEBUG if args.debug else logging.INFO,
+        log_file=config.store_db_log_file,
+    )
+
+    try:
+        args.func(config, args)
+    except Exception as e:
+        logger.exception(e)
+        print(
+            f"An unexpected error occurred:\n\n    {e}\n\nCheck the log for details.",
+            file=sys.stderr,
+        )
+        exit(-1)
 
 
 def store_parser(root, parents):
@@ -37,17 +64,19 @@ def diff_parser(root, parents):
     return cmd
 
 
-def exec_store(args):
-    config = get_config_spec(args.config, args.spec)
+def exec_store(config: Config, args):
     command_store.main(config)
 
 
-def exec_diff(args):
-    config = get_config_spec(args.config, args.spec)
+def exec_diff(config: Config, args):
     command_diff.main(config, args.import_id)
 
 
-def get_config_spec(file_name: str, spec: str):
+def get_config(args) -> Config:
+    return get_config_spec(args.config, args.spec)
+
+
+def get_config_spec(file_name: str, spec: str) -> Config:
     configs = config_file.parse_file(file_name)
     if spec not in configs:
         raise ValueError(

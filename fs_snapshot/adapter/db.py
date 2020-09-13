@@ -1,5 +1,5 @@
 from glob import glob
-import logging
+from logging import Logger
 import os
 import os.path
 import platform
@@ -38,7 +38,7 @@ class SqliteError(Exception):
 
 
 class HasLogger(Protocol):
-    logger: logging.Logger
+    logger: Logger
 
 
 def log_errors(fn):
@@ -62,32 +62,18 @@ def log_errors(fn):
     return _log_errors
 
 
-def connect(db_file: str, log_file: Optional[str] = None) -> sqlite3.Connection:
-    if log_file is None:
-        log_file = db_file + ".log"
-    logger = get_logger(log_file)
+def connect(db_file: str, logger: Optional[Logger] = None) -> sqlite3.Connection:
     c = sqlite3.connect(db_file)
-    c.set_trace_callback(logger.info)
+    if logger is not None:
+        c.set_trace_callback(logger.info)
     c.execute('PRAGMA foreign_keys = "ON"')
     c.enable_load_extension(True)
     for ext in fetch_extensions():
         c.load_extension(ext)
-        logger.debug(f"/* loaded sqlite3 extension: {ext} */")
+        if logger is not None:
+            logger.debug(f"/* loaded sqlite3 extension: {ext} */")
     c.row_factory = sqlite3.Row
     return c
-
-
-def get_logger(log_file: str) -> logging.Logger:
-    name = os.path.splitext(log_file)[0]
-    logger = logging.getLogger(name)
-    logger.propagate = False
-    logger.setLevel(logging.DEBUG)
-    if not logger.hasHandlers():
-        h = logging.FileHandler(filename=log_file,)
-        f = logging.Formatter("[%(asctime)s]\n%(message)s")
-        h.setFormatter(f)
-        logger.addHandler(h)
-    return logger
 
 
 def fetch_extensions() -> Generator[str, None, None]:
@@ -182,13 +168,13 @@ def _executescript(conn: sqlite3.Connection, sql: str) -> sqlite3.Cursor:
 
 def archive(
     db_file: str,
-    log_file: Optional[str] = None,
+    logger: Optional[Logger] = None,
     backup_file: Optional[str] = None,
     progress: Optional[Callable[[int, int, int], None]] = None,
 ):
     if backup_file is None:
         backup_file = fetch_next_backup_filename(db_file)
-    conn = connect(db_file, log_file)
+    conn = connect(db_file, logger)
     backup_conn = sqlite3.connect(backup_file)
     with backup_conn:
         conn.backup(backup_conn, pages=1, progress=progress)

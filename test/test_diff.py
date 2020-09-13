@@ -21,6 +21,7 @@ from examples.file_info import (
 )
 from fs_snapshot.adapter.store import Store
 from fs_snapshot.adapter import db
+from fs_snapshot.adapter.logging import init_logger, init_db_logger, get_db_logger
 from fs_snapshot.model.config import Config, NotArchived
 from fs_snapshot.model.file_info import (
     diff_all,
@@ -60,6 +61,12 @@ def test_diff_changed(pair: Tuple[Iterable[FileInfo], Iterable[FileInfo]]):
     original_files, changed_files = pair
 
     config = build_config()
+    init_logger(level=logging.DEBUG, log_file=config.log_file)
+    init_db_logger(
+        level=logging.DEBUG,
+        name=config.store_db_log_name,
+        log_file=config.store_db_log_file,
+    )
 
     conn, store_db = connect_store_db(config)
     reset_db(conn, store_db)
@@ -92,6 +99,12 @@ def test_diff_copied(pair: Tuple[List[FileInfo], List[FileInfo]]):
     assert len(copied_files) > 0
 
     config = build_config()
+    init_logger(level=logging.DEBUG, log_file=config.log_file)
+    init_db_logger(
+        level=logging.DEBUG,
+        name=config.store_db_log_name,
+        log_file=config.store_db_log_file,
+    )
 
     conn, store_db = connect_store_db(config)
     reset_db(conn, store_db)
@@ -117,6 +130,12 @@ def test_diff_created(
     created_files, original_files = created_and_original_files
 
     config = build_config()
+    init_logger(level=logging.DEBUG, log_file=config.log_file)
+    init_db_logger(
+        level=logging.DEBUG,
+        name=config.store_db_log_name,
+        log_file=config.store_db_log_file,
+    )
 
     conn, store_db = connect_store_db(config)
     reset_db(conn, store_db)
@@ -142,6 +161,12 @@ def test_diff_removed(
     removed_files, original_files = removed_and_original_files
 
     config = build_config()
+    init_logger(level=logging.DEBUG, log_file=config.log_file)
+    init_db_logger(
+        level=logging.DEBUG,
+        name=config.store_db_log_name,
+        log_file=config.store_db_log_file,
+    )
 
     conn, store_db = connect_store_db(config)
     reset_db(conn, store_db)
@@ -195,6 +220,7 @@ def build_config() -> Config:
     return Config(
         match_paths=empty_match_paths,
         root_dir=".",
+        log_file=os.path.join(ROOT_DIR, "output", "fs-snapshot.log"),
         store_db_file=os.path.join(ROOT_DIR, "output", "fs-snapshot.sqlite"),
         store_db_import_table="__import__",
         store_db_file_info_table="file_info",
@@ -223,11 +249,12 @@ def import_and_compare(
 
 
 def connect_store_db(config):
-    conn = db.connect(config.store_db_file, config.store_db_log_file)
+    logger = get_db_logger(config.store_db_log_name)
+    conn = db.connect(config.store_db_file, logger)
     store_db = Store(
         import_table=config.store_db_import_table,
         file_info_table=config.store_db_file_info_table,
-        logger=logging.getLogger(config.store_db_log_name),
+        logger=logger,
     )
     return (conn, store_db)
 
