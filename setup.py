@@ -9,7 +9,7 @@ setup(
     author="Eric Gjertsen",
     email="ericgj72@gmail.com",
     packages=["fs_snapshot"],
-    scripts=[],
+    entry_points={"console_scripts": ["fs-snapshot = fs_snapshot.__main__:main"]},
     tests_require=["pytest", "hypothesis"],
     zip_safe=False,  # to make mypy happy
 )

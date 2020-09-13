@@ -21,7 +21,7 @@ from examples.file_info import (
 )
 from fs_snapshot.adapter.store import Store
 from fs_snapshot.adapter import db
-from fs_snapshot.model.config import Config
+from fs_snapshot.model.config import Config, NotArchived
 from fs_snapshot.model.file_info import (
     diff_all,
     FileInfo,
@@ -41,13 +41,6 @@ CURRENT_TIME = time()
 
 ROOT_DIR = os.path.join("test", "fixtures", "diff")
 
-CONFIG = Config(
-    store_db_root_dir=os.path.join(ROOT_DIR, "output"),
-    store_db_base_name="snapshot.sqlite",
-    store_db_import_table="__import__",
-    store_db_file_info_table="file_info",
-)
-
 
 @given(
     pair=list_of_examples(CURRENT_TIME, min_size=15, max_size=15).flatmap(
@@ -66,7 +59,9 @@ CONFIG = Config(
 def test_diff_changed(pair: Tuple[Iterable[FileInfo], Iterable[FileInfo]]):
     original_files, changed_files = pair
 
-    conn, store_db = connect_store_db(CONFIG)
+    config = build_config()
+
+    conn, store_db = connect_store_db(config)
     reset_db(conn, store_db)
     store_db.init_tables(conn)
 
@@ -96,7 +91,9 @@ def test_diff_copied(pair: Tuple[List[FileInfo], List[FileInfo]]):
     original_files, copied_files = pair
     assert len(copied_files) > 0
 
-    conn, store_db = connect_store_db(CONFIG)
+    config = build_config()
+
+    conn, store_db = connect_store_db(config)
     reset_db(conn, store_db)
     store_db.init_tables(conn)
 
@@ -119,7 +116,9 @@ def test_diff_created(
 ):
     created_files, original_files = created_and_original_files
 
-    conn, store_db = connect_store_db(CONFIG)
+    config = build_config()
+
+    conn, store_db = connect_store_db(config)
     reset_db(conn, store_db)
     store_db.init_tables(conn)
 
@@ -142,7 +141,9 @@ def test_diff_removed(
 ):
     removed_files, original_files = removed_and_original_files
 
-    conn, store_db = connect_store_db(CONFIG)
+    config = build_config()
+
+    conn, store_db = connect_store_db(config)
     reset_db(conn, store_db)
     store_db.init_tables(conn)
 
@@ -188,6 +189,20 @@ def get_original_digest(action: Action) -> Optional[Digest]:
     raise ValueError(f"Unknown action type: {type(action)}")
 
 
+def build_config() -> Config:
+    empty_match_paths: List[str] = []
+    empty_metadata: Dict[str, str] = {}
+    return Config(
+        match_paths=empty_match_paths,
+        root_dir=".",
+        store_db_file=os.path.join(ROOT_DIR, "output", "fs-snapshot.sqlite"),
+        store_db_import_table="__import__",
+        store_db_file_info_table="file_info",
+        metadata=empty_metadata,
+        archived_by=NotArchived(),
+    )
+
+
 def import_and_compare(
     conn: sqlite3.Connection,
     store_db: Store,
@@ -215,11 +230,6 @@ def connect_store_db(config):
         logger=logging.getLogger(config.store_db_log_name),
     )
     return (conn, store_db)
-
-
-def remove_db_files():
-    if os.path.exists(CONFIG.store_db_file):
-        os.remove(CONFIG.store_db_file)
 
 
 def reset_db(conn: sqlite3.Connection, store_db: Store):

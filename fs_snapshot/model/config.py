@@ -1,18 +1,30 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import os.path
-from typing import List, Dict
+from typing import List, Dict, Set, Union
+
+
+class NotArchived:
+    pass
+
+
+@dataclass
+class ArchivedByMetadata:
+    key: str
+    values: Set[str]
+
+
+ArchivedBy = Union[NotArchived, ArchivedByMetadata]
 
 
 @dataclass
 class Config:
-    store_db_root_dir: str
-    store_db_base_name: str
-    store_db_import_table: str
-    store_db_file_info_table: str
-
-    @property
-    def store_db_file(self):
-        return os.path.join(self.store_db_root_dir, self.store_db_base_name)
+    match_paths: List[str]
+    root_dir: str = "."
+    store_db_file: str = "fs-snapshot.sqlite"
+    store_db_import_table: str = "__import__"
+    store_db_file_info_table: str = "file_info"
+    metadata: Dict[str, str] = field(default_factory=dict)
+    archived_by: ArchivedBy = NotArchived()
 
     @property
     def store_db_log_file(self):
@@ -22,9 +34,11 @@ class Config:
     def store_db_log_name(self):
         return os.path.splitext(self.store_db_log_file)[0]
 
+    def is_archived(self, metadata):
+        if isinstance(self.archived_by, NotArchived):
+            return False
 
-@dataclass
-class SearchSpec:
-    root_dir: str
-    match_paths: List[str]
-    metadata: Dict[str, str]
+        if isinstance(self.archived_by, ArchivedByMetadata):
+            return metadata.get(self.archived_by.key, None) in self.archived_by.values
+
+        return False

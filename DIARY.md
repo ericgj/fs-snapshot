@@ -50,7 +50,7 @@ And then:
 
     fs-snapshot save "ecg/extract" --config my-config.ini
 
-    fs-snapshot diff "ecg/extract" e6a435021bc8f --config my-config.ini
+    fs-snapshot diff e6a435021bc8f --config my-config.ini
 
 
 As for the lambda involved in "what makes it an archive". Let's say the
