@@ -22,6 +22,7 @@ secrets
 
 
 # build
+/*.egg-info
 /build
 /ext/linux/*.so
 /ext/windows/*.dll

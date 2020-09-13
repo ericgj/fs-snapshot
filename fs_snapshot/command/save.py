@@ -1,20 +1,16 @@
 from threading import Thread
 
-from command.util import connect_monitor_db
-from adapter import filesys
-from model.config import Config
-from model.ert.study_file import SearchSpec
-
-KEY_FILE_TYPE = "file_type"
-KEY_DATA_TYPE = "data_type"
+from .util import connect_store_db
+from ..adapter import filesys
+from ..model.config import Config, SearchSpec
 
 
 def main(
     config: Config, spec: SearchSpec,
 ):
-    conn, monitor_db = connect_monitor_db(config)
-    id = monitor_db.create_import(
-        conn, {KEY_FILE_TYPE: spec.file_type.name, KEY_DATA_TYPE: spec.data_type.name}
+    conn, store_db = connect_store_db(config)
+    id = store_db.create_import(
+        conn, spec.metadata
     )
 
     threads = [
@@ -29,8 +25,8 @@ def main(
 
 
 def save(config: Config, id: bytes, root_dir: str, match_path: str):
-    conn, monitor_db = connect_monitor_db(config)
-    monitor_db.import_files(
+    conn, store_db = connect_store_db(config)
+    store_db.import_files(
         conn, id, filesys.search(root_dir, match_path, is_archived=has_archive_path),
     )
 

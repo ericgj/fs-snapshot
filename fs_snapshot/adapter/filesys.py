@@ -6,8 +6,8 @@ from glob import glob
 import re
 from typing import Optional, Dict, Callable, Generator
 
-from model.file_info import FileInfo, Digest
-from util import re_
+from ..model.file_info import FileInfo, Digest
+from ..util import re_
 
 REGEXP_VAR = re.compile("(\{[a-zA-Z0-9_]+\})", flags=re.I + re.A)
 REGEXP_VAR_OR_GLOB = re.compile("(\{[a-zA-Z0-9_]+\}|\*\*|\*)", flags=re.I + re.A)

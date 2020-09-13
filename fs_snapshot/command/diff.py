@@ -2,17 +2,17 @@ import json
 import sys
 from typing import Iterable, TextIO
 
-from command.util import connect_monitor_db
-from model.config import Config
-from model.file_info import Action, diff_all
+from .util import connect_store_db
+from ..model.config import Config
+from ..model.file_info import Action, diff_all
 
 
 def main(
     config: Config, import_id: bytes,
 ):
-    conn, monitor_db = connect_monitor_db(config)
+    conn, store_db = connect_store_db(config)
 
-    latest_id, compares = monitor_db.fetch_file_import_compare_latest(conn, import_id)
+    latest_id, compares = store_db.fetch_file_import_compare_latest(conn, import_id)
 
     actions = diff_all(compares)
 

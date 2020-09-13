@@ -3,19 +3,17 @@ import os.path
 import sqlite3
 from typing import Iterable
 
-from command import save
-from adapter.db.monitor import deserialized_tags
-from model.config import Config
-from model.ert.study_file import SearchSpec, FileType, DataType
+from fs_snapshot.command import save
+from fs_snapshot.adapter.store import deserialized_tags
+from fs_snapshot.model.config import Config, SearchSpec
 
 ROOT_DIR = os.path.join("test", "fixtures", "save")
 
 CONFIG = Config(
-    root_dir=ROOT_DIR,
-    monitor_db_root_dir=os.path.join(ROOT_DIR, "output"),
-    monitor_db_base_name="monitor.sqlite",
-    monitor_db_import_table="__import__",
-    monitor_db_file_info_table="file_info",
+    store_db_root_dir=os.path.join(ROOT_DIR, "output"),
+    store_db_base_name="snapshot.sqlite",
+    store_db_import_table="__import__",
+    store_db_file_info_table="file_info",
 )
 
 
@@ -28,14 +26,13 @@ def test_save_single_match_path():
         ),
     ]
     spec = SearchSpec(
-        file_type=FileType.Extract,
-        data_type=DataType.ECG,
+        metadata={"file_type": "Extract", "data_type": "ECG"},
         root_dir=root_dir,
         match_paths=match_paths,
     )
     save.main(CONFIG, spec)
 
-    assert_import_created_with_tags(spec.file_type, spec.data_type)
+    assert_import_created_with_tags("Extract", "ECG")
 
     exp = len([f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))])
     assert_n_files_saved(exp)
@@ -57,14 +54,13 @@ def test_save_multiple_match_paths():
         ),
     ]
     spec = SearchSpec(
-        file_type=FileType.Extract,
-        data_type=DataType.ECG,
+        metadata={"file_type": "Extract", "data_type": "ECG"},
         root_dir=root_dir,
         match_paths=match_paths,
     )
     save.main(CONFIG, spec)
 
-    assert_import_created_with_tags(spec.file_type, spec.data_type)
+    assert_import_created_with_tags("Extract", "ECG")
 
     exp_normal = [f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))]
     exp_archived = [
@@ -76,19 +72,19 @@ def test_save_multiple_match_paths():
     assert_imported_files(exp_archived, archived=True)
 
 
-def assert_import_created_with_tags(file_type: FileType, data_type: DataType):
-    conn = sqlite3.connect(CONFIG.monitor_db_file)
+def assert_import_created_with_tags(file_type: str, data_type: str):
+    conn = sqlite3.connect(CONFIG.store_db_file)
     c = conn.execute("SELECT `tags` FROM `__import__` LIMIT 1;")
     row = c.fetchone()
     if row is None:
         assert False, "DB error: unable to select"
     tags = deserialized_tags(str(row[0]))
-    assert tags.get("file_type") == file_type.name, str(tags)
-    assert tags.get("data_type") == data_type.name, str(tags)
+    assert tags.get("file_type") == file_type, str(tags)
+    assert tags.get("data_type") == data_type, str(tags)
 
 
 def assert_n_files_saved(exp: int):
-    conn = sqlite3.connect(CONFIG.monitor_db_file)
+    conn = sqlite3.connect(CONFIG.store_db_file)
     c = conn.execute("SELECT COUNT(*) FROM `file_info`;")
     row = c.fetchone()
     if row is None:
@@ -98,7 +94,7 @@ def assert_n_files_saved(exp: int):
 
 
 def assert_imported_files(file_names: Iterable[str], archived=False):
-    conn = sqlite3.connect(CONFIG.monitor_db_file)
+    conn = sqlite3.connect(CONFIG.store_db_file)
     c = conn.execute(
         "SELECT file_name, archived FROM `file_info` WHERE archived = ?;",
         (1 if archived else 0,),
@@ -112,8 +108,8 @@ def assert_imported_files(file_names: Iterable[str], archived=False):
 
 
 def remove_db_files():
-    if os.path.exists(CONFIG.monitor_db_file):
-        os.remove(CONFIG.monitor_db_file)
+    if os.path.exists(CONFIG.store_db_file):
+        os.remove(CONFIG.store_db_file)
 
 
 if __name__ == "__main__":

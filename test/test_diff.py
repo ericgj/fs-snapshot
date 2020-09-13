@@ -19,10 +19,10 @@ from examples.file_info import (
     then_was_archived,
     then_was_modified,
 )
-from adapter.db.monitor import Monitor
-from adapter import db
-from model.config import Config
-from model.file_info import (
+from fs_snapshot.adapter.store import Store
+from fs_snapshot.adapter import db
+from fs_snapshot.model.config import Config
+from fs_snapshot.model.file_info import (
     diff_all,
     FileInfo,
     CompareStates,
@@ -42,11 +42,10 @@ CURRENT_TIME = time()
 ROOT_DIR = os.path.join("test", "fixtures", "diff")
 
 CONFIG = Config(
-    root_dir=ROOT_DIR,
-    monitor_db_root_dir=os.path.join(ROOT_DIR, "output"),
-    monitor_db_base_name="monitor.sqlite",
-    monitor_db_import_table="__import__",
-    monitor_db_file_info_table="file_info",
+    store_db_root_dir=os.path.join(ROOT_DIR, "output"),
+    store_db_base_name="snapshot.sqlite",
+    store_db_import_table="__import__",
+    store_db_file_info_table="file_info",
 )
 
 
@@ -67,12 +66,12 @@ CONFIG = Config(
 def test_diff_changed(pair: Tuple[Iterable[FileInfo], Iterable[FileInfo]]):
     original_files, changed_files = pair
 
-    conn, monitor_db = connect_monitor_db(CONFIG)
-    reset_db(conn, monitor_db)
-    monitor_db.init_tables(conn)
+    conn, store_db = connect_store_db(CONFIG)
+    reset_db(conn, store_db)
+    store_db.init_tables(conn)
 
     latest_id, compares = import_and_compare(
-        conn, monitor_db, original_files, changed_files
+        conn, store_db, original_files, changed_files
     )
 
     actions = diff_all(compares)
@@ -97,12 +96,12 @@ def test_diff_copied(pair: Tuple[List[FileInfo], List[FileInfo]]):
     original_files, copied_files = pair
     assert len(copied_files) > 0
 
-    conn, monitor_db = connect_monitor_db(CONFIG)
-    reset_db(conn, monitor_db)
-    monitor_db.init_tables(conn)
+    conn, store_db = connect_store_db(CONFIG)
+    reset_db(conn, store_db)
+    store_db.init_tables(conn)
 
     latest_id, compares = import_and_compare(
-        conn, monitor_db, original_files, original_files + copied_files
+        conn, store_db, original_files, original_files + copied_files
     )
 
     actions = diff_all(compares)
@@ -120,12 +119,12 @@ def test_diff_created(
 ):
     created_files, original_files = created_and_original_files
 
-    conn, monitor_db = connect_monitor_db(CONFIG)
-    reset_db(conn, monitor_db)
-    monitor_db.init_tables(conn)
+    conn, store_db = connect_store_db(CONFIG)
+    reset_db(conn, store_db)
+    store_db.init_tables(conn)
 
     latest_id, compares = import_and_compare(
-        conn, monitor_db, original_files, original_files + created_files
+        conn, store_db, original_files, original_files + created_files
     )
 
     actions = diff_all(compares)
@@ -143,12 +142,12 @@ def test_diff_removed(
 ):
     removed_files, original_files = removed_and_original_files
 
-    conn, monitor_db = connect_monitor_db(CONFIG)
-    reset_db(conn, monitor_db)
-    monitor_db.init_tables(conn)
+    conn, store_db = connect_store_db(CONFIG)
+    reset_db(conn, store_db)
+    store_db.init_tables(conn)
 
     latest_id, compares = import_and_compare(
-        conn, monitor_db, original_files + removed_files, original_files
+        conn, store_db, original_files + removed_files, original_files
     )
 
     actions = diff_all(compares)
@@ -191,40 +190,40 @@ def get_original_digest(action: Action) -> Optional[Digest]:
 
 def import_and_compare(
     conn: sqlite3.Connection,
-    monitor_db: Monitor,
+    store_db: Store,
     original_files: Iterable[FileInfo],
     changed_files: Iterable[FileInfo],
 ) -> Tuple[bytes, List[CompareStates]]:
-    id = monitor_db.create_import(conn)
-    monitor_db.import_files(conn, id, original_files)
+    id = store_db.create_import(conn)
+    store_db.import_files(conn, id, original_files)
 
     sleep(1.1)
-    new_id = monitor_db.create_import(conn)
-    monitor_db.import_files(conn, new_id, changed_files)
+    new_id = store_db.create_import(conn)
+    store_db.import_files(conn, new_id, changed_files)
 
-    latest_id, compares = monitor_db.fetch_file_import_compare_latest(conn, id)
+    latest_id, compares = store_db.fetch_file_import_compare_latest(conn, id)
     assert new_id == latest_id
 
     return (latest_id, compares)
 
 
-def connect_monitor_db(config):
-    conn = db.connect(config.monitor_db_file, config.monitor_db_log_file)
-    monitor_db = Monitor(
-        import_table=config.monitor_db_import_table,
-        file_info_table=config.monitor_db_file_info_table,
-        logger=logging.getLogger(config.monitor_db_log_name),
+def connect_store_db(config):
+    conn = db.connect(config.store_db_file, config.store_db_log_file)
+    store_db = Store(
+        import_table=config.store_db_import_table,
+        file_info_table=config.store_db_file_info_table,
+        logger=logging.getLogger(config.store_db_log_name),
     )
-    return (conn, monitor_db)
+    return (conn, store_db)
 
 
 def remove_db_files():
-    if os.path.exists(CONFIG.monitor_db_file):
-        os.remove(CONFIG.monitor_db_file)
+    if os.path.exists(CONFIG.store_db_file):
+        os.remove(CONFIG.store_db_file)
 
 
-def reset_db(conn: sqlite3.Connection, monitor_db: Monitor):
-    monitor_db.init_tables(conn)
+def reset_db(conn: sqlite3.Connection, store_db: Store):
+    store_db.init_tables(conn)
     with conn:
         db.execute(conn, "DELETE FROM `file_info`;")
         db.execute(conn, "DELETE FROM `__import__`;")

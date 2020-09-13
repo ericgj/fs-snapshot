@@ -5,15 +5,15 @@ from time import time
 from uuid import uuid4
 from typing import Optional, Iterable, Any, Tuple, Dict, List
 
-from adapter import db
-from model import file_info
+from . import db
+from ..model import file_info
 
 
-class MonitorDbFileImportNotFound(Exception):
+class StoreFileImportNotFound(Exception):
     pass
 
 
-class MonitorDbFileImportCompareNoChanges(Exception):
+class StoreFileImportCompareNoChanges(Exception):
     pass
 
 
@@ -34,7 +34,7 @@ class FileImport:
     files: List[file_info.FileInfo]
 
 
-class Monitor:
+class Store:
     def __init__(self, *, import_table: str, file_info_table: str, logger: Logger):
         self.import_table = import_table
         self.file_info_table = file_info_table
@@ -65,9 +65,9 @@ class Monitor:
     ) -> Tuple[bytes, List[file_info.CompareStates]]:
         latest_id = self.fetch_latest_import_id(conn, id)
         if latest_id is None:
-            raise MonitorDbFileImportNotFound(id)  # should not reach
+            raise StoreFileImportNotFound(id)  # should not reach
         if latest_id == id:
-            raise MonitorDbFileImportCompareNoChanges(id)
+            raise StoreFileImportCompareNoChanges(id)
 
         rows = self.select_file_import_compare(conn, id, latest_id)
         return (latest_id, [deserialized_file_info_compare(row) for row in rows])
@@ -76,7 +76,7 @@ class Monitor:
         rows = self.select_imported_file_infos(conn, id)
         file_import = deserialized_file_import(rows)
         if file_import is None:
-            raise MonitorDbFileImportNotFound(id)
+            raise StoreFileImportNotFound(id)
         return file_import
 
     def fetch_import(self, conn: sqlite3.Connection, id: bytes) -> FileImport:
@@ -84,7 +84,7 @@ class Monitor:
         try:
             row = db.select_one(conn, sql, params)
         except IndexError:
-            raise MonitorDbFileImportNotFound(id)
+            raise StoreFileImportNotFound(id)
         file_import = deserialized_import(row)
         return file_import
 

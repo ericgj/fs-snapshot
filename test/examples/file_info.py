@@ -5,7 +5,7 @@ from typing import Optional, Iterable, Callable, Dict
 
 import hypothesis.strategies as hyp
 
-from model.file_info import FileInfo, Digest
+from fs_snapshot.model.file_info import FileInfo, Digest
 
 
 def list_of_examples(
