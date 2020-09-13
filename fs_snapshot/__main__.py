@@ -12,13 +12,13 @@ from .model.config import Config
 
 def main():
     program = ArgumentParser(description="Snapshot and diff file system info")
-    common = ArgumentParser()
-    common.add_argument("spec", description="Spec name")
+    common = ArgumentParser(add_help=False)
+    common.add_argument("spec", help="Spec name")
     common.add_argument(
-        "-c", "--config", description="Config file", type=str, default="fs-snapshot.ini"
+        "-c", "--config", help="Config file", type=str, default="fs-snapshot.ini"
     )
     common.add_argument(
-        "--debug", description="Debug messages to log", action="store_true",
+        "--debug", help="Debug messages to log", action="store_true",
     )
     sub = program.add_subparsers(help="command help")
 
