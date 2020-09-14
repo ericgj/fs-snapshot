@@ -181,11 +181,13 @@ def sql_script_init_file_info_table(*, file_info_table: str, import_table: str) 
     file_info_table_literal = db.name_literal(file_info_table)
     import_table_literal = db.name_literal(import_table)
     digest_index_literal = db.name_literal(f"{file_info_table}_digest")
-    file_name_index_literal = db.name_literal(f"{file_info_table}_file_name")
+    dir_name_index_literal = db.name_literal(f"{file_info_table}_dir_name")
+    base_name_index_literal = db.name_literal(f"{file_info_table}_base_name")
     return f"""
 CREATE TABLE IF NOT EXISTS {file_info_table_literal}
     ( `digest` BYTES NOT NULL
-    , `file_name` TEXT NOT NULL
+    , `dir_name` TEXT NOT NULL
+    , `base_name` TEXT NOT NULL
     , `created` INT NOT NULL
     , `modified` INT NOT NULL
     , `size` INT NOT NULL
@@ -196,7 +198,8 @@ CREATE TABLE IF NOT EXISTS {file_info_table_literal}
     )
 ;
 CREATE INDEX IF NOT EXISTS {digest_index_literal} ON {file_info_table_literal} (`digest`);
-CREATE INDEX IF NOT EXISTS {file_name_index_literal} ON {file_info_table_literal} (`file_name`);
+CREATE INDEX IF NOT EXISTS {dir_name_index_literal} ON {file_info_table_literal} (`dir_name`);
+CREATE INDEX IF NOT EXISTS {base_name_index_literal} ON {file_info_table_literal} (`base_name`);
     """
 
 
@@ -232,7 +235,8 @@ def sql_insert_file_info(
         f"""
 INSERT INTO {file_info_table_literal} 
     ( `digest`
-    , `file_name`
+    , `dir_name`
+    , `base_name`
     , `created`
     , `modified`
     , `size`
@@ -240,13 +244,14 @@ INSERT INTO {file_info_table_literal}
     , `tags`
     , `import_id`
     )  VALUES
-    ( ?, ?, ?, ?, ?, ?, ?, ? )
+    ( ?, ?, ?, ?, ?, ?, ?, ?, ? )
 ;
     """,
         (
             (
                 f.digest,
-                f.file_name,
+                f.dir_name,
+                f.base_name,
                 f.created,
                 f.modified,
                 f.size,
@@ -322,7 +327,8 @@ def sql_select_file_import_compare(
         f"""
     /* IN PREV ONLY */
 SELECT prev.`digest` AS `digest_prev`
-     , prev.`file_name` AS `file_name_prev`
+     , prev.`dir_name` AS `dir_name_prev`
+     , prev.`base_name` AS `base_name_prev`
      , prev.`created` AS `created_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
@@ -330,7 +336,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
-     , next.`file_name` AS `file_name_next`
+     , next.`dir_name` AS `dir_name_next`
+     , next.`base_name` AS `base_name_next`
      , next.`created` AS `created_next`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
@@ -340,7 +347,8 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS prev 
     LEFT JOIN {file_info_table_literal} AS next
-        ON prev.`digest` = next.`digest` OR prev.`file_name` = next.`file_name`
+        ON prev.`digest` = next.`digest` 
+        OR (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
 WHERE next.`digest` IS NULL
   AND prev.`import_id` = ? 
   AND next.`import_id` = ?
@@ -348,7 +356,8 @@ WHERE next.`digest` IS NULL
 UNION
     /* IN BOTH, RENAMED */
 SELECT prev.`digest` AS `digest_prev`
-     , prev.`file_name` AS `file_name_prev`
+     , prev.`dir_name` AS `dir_name_prev`
+     , prev.`base_name` AS `base_name_prev`
      , prev.`created` AS `created_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
@@ -356,7 +365,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
-     , next.`file_name` AS `file_name_next`
+     , next.`dir_name` AS `dir_name_next`
+     , next.`base_name` AS `base_name_next`
      , next.`created` AS `created_next`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
@@ -366,14 +376,16 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS prev 
     INNER JOIN {file_info_table_literal} AS next
-        ON prev.`digest` = next.`digest` AND NOT prev.`file_name` = next.`file_name`
+        ON prev.`digest` = next.`digest` 
+        AND NOT (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
 WHERE prev.`import_id` = ? 
   AND next.`import_id` = ?
   AND prev.`digest` NOT IN (
       SELECT a.`digest` 
       FROM {file_info_table_literal} AS a
           INNER JOIN {file_info_table_literal} AS b
-              ON a.`digest` = b.`digest` AND a.`file_name` = b.`file_name`
+              ON a.`digest` = b.`digest` 
+              AND (a.`dir_name` = b.`dir_name` AND a.`base_name` = b.`base_name`)
       WHERE a.`import_id` = ?
       AND b.`import_id` = ?
   )
@@ -381,7 +393,8 @@ WHERE prev.`import_id` = ?
 UNION
     /* IN BOTH, COPIED */
 SELECT prev.`digest` AS `digest_prev`
-     , prev.`file_name` AS `file_name_prev`
+     , prev.`dir_name` AS `dir_name_prev`
+     , prev.`base_name` AS `base_name_prev`
      , prev.`created` AS `created_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
@@ -389,7 +402,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
-     , next.`file_name` AS `file_name_next`
+     , next.`dir_name` AS `dir_name_next`
+     , next.`base_name` AS `base_name_next`
      , next.`created` AS `created_next`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
@@ -399,14 +413,16 @@ SELECT prev.`digest` AS `digest_prev`
      , 1 AS __copied__
 FROM {file_info_table_literal} AS prev 
     INNER JOIN {file_info_table_literal} AS next
-        ON prev.`digest` = next.`digest` AND NOT prev.`file_name` = next.`file_name`
+        ON prev.`digest` = next.`digest` 
+        AND NOT (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
 WHERE prev.`import_id` = ? 
   AND next.`import_id` = ?
   AND prev.`digest` IN (
       SELECT a.`digest` 
       FROM {file_info_table_literal} AS a
           INNER JOIN {file_info_table_literal} AS b
-              ON a.`digest` = b.`digest` AND a.`file_name` = b.`file_name`
+              ON a.`digest` = b.`digest` 
+              AND (a.`dir_name` = b.`dir_name` AND a.`base_name` = b.`base_name`)
       WHERE a.`import_id` = ?
       AND b.`import_id` = ?
   )
@@ -414,7 +430,8 @@ WHERE prev.`import_id` = ?
 UNION
     /* IN BOTH, MODIFIED */
 SELECT prev.`digest` AS `digest_prev`
-     , prev.`file_name` AS `file_name_prev`
+     , prev.`dir_name` AS `dir_name_prev`
+     , prev.`base_name` AS `base_name_prev`
      , prev.`created` AS `created_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
@@ -422,7 +439,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
-     , next.`file_name` AS `file_name_next`
+     , next.`dir_name` AS `dir_name_next`
+     , next.`base_name` AS `base_name_next`
      , next.`created` AS `created_next`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
@@ -432,14 +450,16 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS prev 
     INNER JOIN {file_info_table_literal} AS next
-        ON prev.`file_name` = next.`file_name` AND NOT prev.`digest` = next.`digest`
+        ON (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`) 
+        AND NOT prev.`digest` = next.`digest`
 WHERE prev.`import_id` = ? 
   AND next.`import_id` = ?
 
 UNION
     /* IN BOTH, NO CHANGE */
 SELECT prev.`digest` AS `digest_prev`
-     , prev.`file_name` AS `file_name_prev`
+     , prev.`dir_name` AS `dir_name_prev`
+     , prev.`base_name` AS `base_name_prev`
      , prev.`created` AS `created_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
@@ -447,7 +467,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
-     , next.`file_name` AS `file_name_next`
+     , next.`dir_name` AS `dir_name_next`
+     , next.`base_name` AS `base_name_next`
      , next.`created` AS `created_next`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
@@ -457,14 +478,16 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS prev 
     INNER JOIN {file_info_table_literal} AS next
-        ON prev.`digest` = next.`digest` AND prev.`file_name` = next.`file_name`
+        ON prev.`digest` = next.`digest` 
+        AND (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
 WHERE prev.`import_id` = ? 
   AND next.`import_id` = ?
 
 UNION
     /* IN NEXT ONLY */
 SELECT prev.`digest` AS `digest_prev`
-     , prev.`file_name` AS `file_name_prev`
+     , prev.`dir_name` AS `dir_name_prev`
+     , prev.`base_name` AS `base_name_prev`
      , prev.`created` AS `created_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
@@ -472,7 +495,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
-     , next.`file_name` AS `file_name_next`
+     , next.`dir_name` AS `dir_name_next`
+     , next.`base_name` AS `base_name_next`
      , next.`created` AS `created_next`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
@@ -482,7 +506,8 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS next 
     LEFT JOIN {file_info_table_literal} AS prev
-        ON next.`digest` = prev.`digest` OR next.`file_name` = prev.`file_name`
+        ON next.`digest` = prev.`digest` 
+        OR (next.`dir_name` = prev.`dir_name` AND next.`base_name` = prev.`base_name`)
 WHERE prev.`digest` IS NULL
   AND prev.`import_id` = ?
   AND next.`import_id` = ?
@@ -540,7 +565,8 @@ def deserialized_file_info(
 ) -> file_info.FileInfo:
     return file_info.FileInfo(
         digest=bytes(row["digest" + field_suffix]),
-        file_name=str(row["file_name" + field_suffix]),
+        dir_name=str(row["dir_name" + field_suffix]),
+        base_name=str(row["base_name" + field_suffix]),
         created=float(row["created" + field_suffix]),
         modified=float(row["modified" + field_suffix]),
         size=int(row["size" + field_suffix]),

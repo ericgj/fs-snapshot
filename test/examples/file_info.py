@@ -58,9 +58,16 @@ def examples(
     return hyp.builds(
         FileInfo,
         digest=digests() if digest is None else hyp.just(digest),
-        file_name=file_names(max_depth=10)
-        if file_name is None
-        else hyp.just(file_name),
+        dir_name=(
+            dir_names(max_depth=10)
+            if file_name is None
+            else hyp.just(os.path.dirname(file_name))
+        ),
+        base_name=(
+            file_base_names()
+            if file_name is None
+            else hyp.just(os.path.basename(file_name))
+        ),
         created=times_near(current_time, before=timedelta(weeks=2)),
         modified=times_near(current_time, before=timedelta(weeks=1)),
         size=hyp.integers(min_value=1, max_value=(2 ** 16)),
@@ -99,26 +106,14 @@ def then_was_moved(original: FileInfo,) -> hyp.SearchStrategy:
     return hyp.tuples(
         dir_names(max_depth=10).filter(lambda s: s != original.dir_name),
         sample_metadata(["client", "protocol", "account"]),
-    ).map(
-        lambda pair: replace(
-            original,
-            file_name=os.path.join(pair[0], original.base_name),
-            metadata=pair[1],
-        )
-    )
+    ).map(lambda pair: replace(original, dir_name=pair[0], metadata=pair[1],))
 
 
 def then_was_renamed(original: FileInfo,) -> hyp.SearchStrategy:
     return hyp.tuples(
         file_base_names().filter(lambda s: s != original.base_name),
         sample_metadata(["client", "protocol", "account"]),
-    ).map(
-        lambda pair: replace(
-            original,
-            file_name=os.path.join(original.dir_name, pair[0]),
-            metadata=pair[1],
-        )
-    )
+    ).map(lambda pair: replace(original, base_name=pair[0], metadata=pair[1],))
 
 
 def then_was_archived(original: FileInfo,) -> hyp.SearchStrategy:
@@ -127,12 +122,7 @@ def then_was_archived(original: FileInfo,) -> hyp.SearchStrategy:
         sample_metadata(["client", "protocol", "account"]),
     ).map(
         lambda pair: replace(
-            original,
-            file_name=os.path.join(
-                os.path.join(original.dir_name, pair[0]), original.base_name
-            ),
-            metadata=pair[1],
-            archived=True,
+            original, dir_name=pair[0], metadata=pair[1], archived=True,
         )
     )
 
@@ -142,14 +132,12 @@ def then_was_modified(original: FileInfo,) -> hyp.SearchStrategy:
         digests().filter(lambda b: b != original.digest),
         hyp.timedeltas().filter(lambda td: td.total_seconds() > 0),
         hyp.integers(min_value=1, max_value=(2 ** 16)),
-        sample_metadata(["client", "protocol", "account"]),
     ).map(
         lambda state: replace(
             original,
             digest=state[0],
             modified=original.modified + state[1].total_seconds(),
             size=state[2],
-            metadata=state[3],
         )
     )
 

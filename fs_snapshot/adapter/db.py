@@ -62,6 +62,11 @@ def log_errors(fn):
     return _log_errors
 
 
+# ------------------------------------------------------------------------------
+# Connection init
+# ------------------------------------------------------------------------------
+
+
 def connect(db_file: str, logger: Optional[Logger] = None) -> sqlite3.Connection:
     c = sqlite3.connect(db_file)
     if logger is not None:
@@ -82,6 +87,10 @@ def fetch_extensions() -> Generator[str, None, None]:
         yield base
 
 
+# ------------------------------------------------------------------------------
+# DB Schema
+# ------------------------------------------------------------------------------
+
 # TODO: use sqlite_ tables to fetch this info vs the shell
 
 
@@ -100,6 +109,11 @@ def fetch_tables(db_file: str) -> Set[str]:
         return set()
     else:
         return set(t.strip() for t in outp.split())
+
+
+# ------------------------------------------------------------------------------
+# Base DBI adapters
+# ------------------------------------------------------------------------------
 
 
 def select(
@@ -166,6 +180,11 @@ def _executescript(conn: sqlite3.Connection, sql: str) -> sqlite3.Cursor:
         raise SqliteError(e, sql)
 
 
+# ------------------------------------------------------------------------------
+# Archiving db files
+# ------------------------------------------------------------------------------
+
+
 def archive(
     db_file: str,
     logger: Optional[Logger] = None,
@@ -188,6 +207,11 @@ def fetch_next_backup_filename(db_file: str):
     base, ext = os.path.splitext(fname)
     n = len([m for m in glob(os.path.join(dir, f"{base}.*{ext}"))])
     return os.path.join(dir, f"{base}.{n+1}{ext}")
+
+
+# ------------------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------------------
 
 
 def name_literal(name: str) -> str:

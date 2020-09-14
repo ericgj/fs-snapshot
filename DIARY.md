@@ -5,6 +5,71 @@ file-monitoring tool.
 
 --------------------------------------------------------------------------------
 
+_13 Sept 2020_
+
+# The more urgent use
+
+...is monitoring disk usage, both a current snapshot and over time. I'm 
+imagining a basic report that looks like this for 'current snapshot':
+
+    Data Type   System      File Type   Size     Largest Study
+    ABPM        ABPM                    201 GB   089123
+                            Extract     130 GB   089123
+                            Final        61 GB   089456
+                            Interim      10 GB   089678
+
+or maybe 'Largest Study' is not as helpful here; we could have a separate 
+listing not by File Type but by "top ten" largest and oldest studies per
+Data Type + System:
+
+    Data Type   System      Study       Size     Last Modified
+    ABPM        ABPM        089123       16 GB   06 MAY 2017
+
+"Largest and oldest" meaning not, first the largest, and then the oldest within
+the largest; but treating file age and size as equal factors. We are just as
+interested in finding the oldest studies to archive as the largest. This kind
+of query could be done using `RANK()` in a subquery and then `MAX(age_rank +
+file_age_rank)`, I think.
+
+But actually it might be simpler than this. I think the rule for looking at
+studies to archive is over 2 years past database lock. So we could simply
+filter the list down by age and sort by size.
+
+One problem I see is the storage db is generic over the file metadata. 
+You can do Data Type, System, File Type by defining separate searches for
+each (which end up as predictable tags per import). But as for grouping by
+pieces of the file metadata, which you don't know ahead of time, how are you 
+going to do that?
+
+I think what could be done is to introduce the 'project' as generic concept.
+Each file record in the database stores its 'project' in a full-fledged field
+(i.e. not in tags), which can then be indexed and queried. The search specs
+can then (similar to the `archived` business) define which metadata fields
+make up the 'project'.
+
+    [fs-snapshot:ecg/extract]
+    metadata = 
+        data_type = ECG
+        file_type = Extract
+    root_dir = E:\\community\\ecg
+    match_paths =
+        {account}\\csv\\{protocol}_{qc_or_pr}_C_*.CSV
+        {account}\\csv\\{archive}\\{protocol}_{qc_or_pr}_C_*.CSV
+    archived =
+        has-metadata archive "archived,archive,_archive,_archived"
+    project = from-metadata "account,protocol"
+
+Thinking about it, we could also introduce a generic concept of 'file type'
+at the file level, stored in a separate field. So for example:
+
+    project = from-metadata "account,protocol"
+    file_type = from-metadata "qc_or_pr"
+
+Then we can query file types across projects and projects across file types
+without difficulty.
+
+
+
 _11 Sept 2020_
 
 # Splitting out the generic tool further

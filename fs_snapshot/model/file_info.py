@@ -8,7 +8,8 @@ Digest = bytes
 @dataclass
 class FileInfo:
     digest: Digest
-    file_name: str
+    dir_name: str
+    base_name: str
     created: float
     modified: float
     size: int
@@ -20,17 +21,19 @@ class FileInfo:
         return self.digest.hex()
 
     @property
-    def dir_name(self):
-        return os.path.dirname(self.file_name)
-
-    @property
-    def base_name(self):
-        return os.path.basename(self.file_name)
+    def file_name(self):
+        """ 
+        Note: this is os.sep specific, so it assumes the same os created the
+        record as is reading the file_name
+        """
+        return os.path.join(self.dir_name, self.base_name)
 
     def to_json(self):
         return {
             "$type": self.__class__.__name__,
-            "digest": self.digest.hex(),
+            "digest": self.hexdigest,
+            "dir_name": self.dir_name,
+            "base_name": self.base_name,
             "file_name": self.file_name,
             "created": self.created,
             "modified": self.modified,
@@ -222,26 +225,31 @@ def diff_file_info(a: FileInfo, b: FileInfo) -> Optional[Action]:
 
 def update(file_info: FileInfo, action: Action) -> FileInfo:
     if isinstance(action, Moved):
-        return replace(
-            file_info,
-            file_name=os.path.join(action.dir_name, file_info.base_name),
-            metadata=action.metadata,
-        )
+        return replace(file_info, dir_name=action.dir_name, metadata=action.metadata,)
     if isinstance(action, Renamed):
-        return replace(
-            file_info,
-            file_name=os.path.join(file_info.dir_name, action.base_name),
-            metadata=action.metadata,
-        )
+        return replace(file_info, base_name=action.base_name, metadata=action.metadata,)
     if isinstance(action, Archived):
         return replace(
             file_info,
-            file_name=os.path.join(action.dir_name, file_info.base_name),
+            dir_name=action.dir_name,
             archived=True,
             metadata=action.metadata,
         )
 
     if isinstance(action, Modified):
-        return replace(file_info, modified=action.modified, digest=action.digest)
+        return replace(
+            file_info, digest=action.digest, modified=action.modified, size=action.size,
+        )
+
+    # Note: these three actions should not actually be pushed through this function
+
+    if isinstance(action, Created):
+        return file_info
+
+    if isinstance(action, Removed):
+        return file_info
+
+    if isinstance(action, Copied):
+        return file_info
 
     raise ValueError(f"Unknown action type: {type(action)}")
