@@ -54,6 +54,8 @@ def examples(
     file_name: Optional[str] = None,
     archived: Optional[bool] = False,
     metadata: Optional[Dict[str, str]] = None,
+    file_group: Optional[str] = None,
+    file_type: Optional[str] = None,
 ) -> hyp.SearchStrategy:
     return hyp.builds(
         FileInfo,
@@ -72,9 +74,17 @@ def examples(
         modified=times_near(current_time, before=timedelta(weeks=1)),
         size=hyp.integers(min_value=1, max_value=(2 ** 16)),
         archived=hyp.booleans() if archived is None else hyp.just(archived),
-        metadata=sample_metadata(["client", "protocol", "account"])
-        if metadata is None
-        else hyp.just(metadata),
+        metadata=(
+            sample_metadata(["client", "protocol", "account"])
+            if metadata is None
+            else hyp.just(metadata)
+        ),
+        file_group=(
+            (hyp.just(None) | strings()) if file_group is None else hyp.just(file_group)
+        ),
+        file_type=(
+            (hyp.just(None) | strings()) if file_type is None else hyp.just(file_type)
+        ),
     )
 
 
@@ -182,6 +192,14 @@ def file_base_names(
         lambda base_name: file_path_segments(min_size=1, max_size=10).map(
             lambda ext: ".".join([base_name, ext])
         )
+    )
+
+
+def strings(*, min_size: int = 1, max_size: Optional[int] = None) -> hyp.SearchStrategy:
+    return hyp.text(
+        min_size=min_size,
+        max_size=max_size,
+        alphabet=hyp.characters(whitelist_categories=["Lu", "Ll", "Nd", "P"],),
     )
 
 

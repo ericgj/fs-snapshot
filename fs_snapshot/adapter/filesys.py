@@ -9,14 +9,16 @@ from typing import Optional, Dict, Callable, Generator
 from ..model.file_info import FileInfo, Digest
 from ..util import re_
 
-REGEXP_VAR = re.compile("(\{[a-zA-Z0-9_]+\})", flags=re.I + re.A)
-REGEXP_VAR_OR_GLOB = re.compile("(\{[a-zA-Z0-9_]+\}|\*\*|\*)", flags=re.I + re.A)
+REGEXP_VAR = re.compile("(\\{[a-zA-Z0-9_]+\\})", flags=re.I + re.A)
+REGEXP_VAR_OR_GLOB = re.compile("(\\{[a-zA-Z0-9_]+\\}|\\*\\*|\\*)", flags=re.I + re.A)
 
 
 def search(
     root_dir: str,
     match_path: str,
     is_archived: Optional[Callable[[Dict[str, str]], bool]] = None,
+    calc_file_group: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
+    calc_file_type: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
 ) -> Generator[FileInfo, None, None]:
     matcher = Matcher(os.path.join(root_dir, match_path))
     for fname in glob(matcher.glob):
@@ -25,12 +27,22 @@ def search(
             yield fetch_file_info(
                 fname,
                 archived=(False if is_archived is None else is_archived(metadata)),
+                file_group=(
+                    None if calc_file_group is None else calc_file_group(metadata)
+                ),
+                file_type=(
+                    None if calc_file_type is None else calc_file_type(metadata)
+                ),
                 metadata=metadata,
             )
 
 
 def fetch_file_info(
-    fname: str, archived: bool = False, metadata: Dict[str, str] = {}
+    fname: str,
+    archived: bool = False,
+    file_group: Optional[str] = None,
+    file_type: Optional[str] = None,
+    metadata: Dict[str, str] = {},
 ) -> FileInfo:
     fstat = os.stat(fname)
     fdigest = digest(fname)
@@ -42,6 +54,8 @@ def fetch_file_info(
         base_name=os.path.basename(fname),
         digest=fdigest,
         archived=archived,
+        file_group=file_group,
+        file_type=file_type,
         metadata=metadata,
     )
 

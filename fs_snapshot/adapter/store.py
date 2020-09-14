@@ -183,6 +183,9 @@ def sql_script_init_file_info_table(*, file_info_table: str, import_table: str) 
     digest_index_literal = db.name_literal(f"{file_info_table}_digest")
     dir_name_index_literal = db.name_literal(f"{file_info_table}_dir_name")
     base_name_index_literal = db.name_literal(f"{file_info_table}_base_name")
+    file_group_index_literal = db.name_literal(f"{file_info_table}_file_group")
+    file_type_index_literal = db.name_literal(f"{file_info_table}_file_type")
+
     return f"""
 CREATE TABLE IF NOT EXISTS {file_info_table_literal}
     ( `digest` BYTES NOT NULL
@@ -192,6 +195,8 @@ CREATE TABLE IF NOT EXISTS {file_info_table_literal}
     , `modified` INT NOT NULL
     , `size` INT NOT NULL
     , `archived` TINYINT NOT NULL
+    , `file_group` TEXT NULL
+    , `file_type` TEXT NULL
     , `tags` TEXT NULL
     , `import_id` BYTES NOT NULL
     , FOREIGN KEY(`import_id`) REFERENCES {import_table_literal}(`id`)
@@ -200,6 +205,8 @@ CREATE TABLE IF NOT EXISTS {file_info_table_literal}
 CREATE INDEX IF NOT EXISTS {digest_index_literal} ON {file_info_table_literal} (`digest`);
 CREATE INDEX IF NOT EXISTS {dir_name_index_literal} ON {file_info_table_literal} (`dir_name`);
 CREATE INDEX IF NOT EXISTS {base_name_index_literal} ON {file_info_table_literal} (`base_name`);
+CREATE INDEX IF NOT EXISTS {file_group_index_literal} ON {file_info_table_literal} (`file_group`);
+CREATE INDEX IF NOT EXISTS {file_type_index_literal} ON {file_info_table_literal} (`file_type`);
     """
 
 
@@ -241,10 +248,12 @@ INSERT INTO {file_info_table_literal}
     , `modified`
     , `size`
     , `archived`
+    , `file_group`
+    , `file_type`
     , `tags`
     , `import_id`
     )  VALUES
-    ( ?, ?, ?, ?, ?, ?, ?, ?, ? )
+    ( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )
 ;
     """,
         (
@@ -256,6 +265,8 @@ INSERT INTO {file_info_table_literal}
                 f.modified,
                 f.size,
                 1 if f.archived else 0,
+                f.file_group,
+                f.file_type,
                 serialized_tags(f.metadata),
                 id,
             )
@@ -333,6 +344,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
      , prev.`archived` AS `archived_prev`
+     , prev.`file_group` AS `file_group_prev`
+     , prev.`file_type` AS `file_type_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
@@ -342,6 +355,8 @@ SELECT prev.`digest` AS `digest_prev`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
      , next.`archived` AS `archived_next`
+     , next.`file_group` AS `file_group_next`
+     , next.`file_type` AS `file_type_next`
      , next.`tags` AS `tags_next`
      , next.`import_id` AS `import_id_next`
      , 0 AS __copied__
@@ -362,6 +377,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
      , prev.`archived` AS `archived_prev`
+     , prev.`file_group` AS `file_group_prev`
+     , prev.`file_type` AS `file_type_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
@@ -371,6 +388,8 @@ SELECT prev.`digest` AS `digest_prev`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
      , next.`archived` AS `archived_next`
+     , next.`file_group` AS `file_group_next`
+     , next.`file_type` AS `file_type_next`
      , next.`tags` AS `tags_next`
      , next.`import_id` AS `import_id_next`
      , 0 AS __copied__
@@ -399,6 +418,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
      , prev.`archived` AS `archived_prev`
+     , prev.`file_group` AS `file_group_prev`
+     , prev.`file_type` AS `file_type_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
@@ -408,6 +429,8 @@ SELECT prev.`digest` AS `digest_prev`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
      , next.`archived` AS `archived_next`
+     , next.`file_group` AS `file_group_next`
+     , next.`file_type` AS `file_type_next`
      , next.`tags` AS `tags_next`
      , next.`import_id` AS `import_id_next`
      , 1 AS __copied__
@@ -436,6 +459,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
      , prev.`archived` AS `archived_prev`
+     , prev.`file_group` AS `file_group_prev`
+     , prev.`file_type` AS `file_type_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
@@ -445,6 +470,8 @@ SELECT prev.`digest` AS `digest_prev`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
      , next.`archived` AS `archived_next`
+     , next.`file_group` AS `file_group_next`
+     , next.`file_type` AS `file_type_next`
      , next.`tags` AS `tags_next`
      , next.`import_id` AS `import_id_next`
      , 0 AS __copied__
@@ -464,6 +491,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
      , prev.`archived` AS `archived_prev`
+     , prev.`file_group` AS `file_group_prev`
+     , prev.`file_type` AS `file_type_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
@@ -473,6 +502,8 @@ SELECT prev.`digest` AS `digest_prev`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
      , next.`archived` AS `archived_next`
+     , next.`file_group` AS `file_group_next`
+     , next.`file_type` AS `file_type_next`
      , next.`tags` AS `tags_next`
      , next.`import_id` AS `import_id_next`
      , 0 AS __copied__
@@ -492,6 +523,8 @@ SELECT prev.`digest` AS `digest_prev`
      , prev.`modified` AS `modified_prev`
      , prev.`size` AS `size_prev`
      , prev.`archived` AS `archived_prev`
+     , prev.`file_group` AS `file_group_prev`
+     , prev.`file_type` AS `file_type_prev`
      , prev.`tags` AS `tags_prev`
      , prev.`import_id` AS `import_id_prev`
      , next.`digest` AS `digest_next`
@@ -501,6 +534,8 @@ SELECT prev.`digest` AS `digest_prev`
      , next.`modified` AS `modified_next`
      , next.`size` AS `size_next`
      , next.`archived` AS `archived_next`
+     , next.`file_group` AS `file_group_next`
+     , next.`file_type` AS `file_type_next`
      , next.`tags` AS `tags_next`
      , next.`import_id` AS `import_id_next`
      , 0 AS __copied__
@@ -571,6 +606,8 @@ def deserialized_file_info(
         modified=float(row["modified" + field_suffix]),
         size=int(row["size" + field_suffix]),
         archived=True if int(row["archived" + field_suffix]) == 1 else False,
+        file_group=str(row["file_group" + field_suffix]),
+        file_type=str(row["file_type" + field_suffix]),
         metadata=deserialized_tags(str(row["tags" + field_suffix])),
     )
 

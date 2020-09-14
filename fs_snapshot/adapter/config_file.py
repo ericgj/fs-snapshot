@@ -2,7 +2,13 @@ from configparser import ConfigParser
 import shlex
 from typing import Optional, List, Dict, Set
 
-from ..model.config import Config, ArchivedBy, ArchivedByMetadata
+from ..model.config import (
+    Config,
+    ArchivedBy,
+    ArchivedByMetadata,
+    CalcBy,
+    CalcByMetadata,
+)
 
 DEFAULT_SECTION = "fs-snapshot"
 
@@ -31,7 +37,9 @@ def parse_section(section: Dict[str, str]) -> Config:
             parse_string(section.get("store_db_file_info_table", "")),
         ),
         ("metadata", parse_string_dict(section.get("metadata", ""))),
-        ("is_archived", parse_is_archived(section.get("is_archived", ""))),
+        ("archived_by", parse_archived_by(section.get("archived_by", ""))),
+        ("file_group_by", parse_calc(section.get("file_group_by", ""))),
+        ("file_type_by", parse_calc(section.get("file_type_by", ""))),
     ]
     return Config(**dict([(k, v) for (k, v) in options if v is not None]))  # type: ignore
 
@@ -70,21 +78,21 @@ def parse_string_dict(s: str) -> Optional[Dict[str, str]]:
     return ret
 
 
-def parse_is_archived(s: str) -> Optional[ArchivedBy]:
+def parse_archived_by(s: str) -> Optional[ArchivedBy]:
     line = parse_string(s)
     if line is None:
         return None
     parts = shlex.split(line)
-    if parts[0] == "by-metadata":
-        return parse_is_archived_has_metadata(parts[1:])
+    if parts[0] == "has-metadata":
+        return parse_archived_has_metadata(parts[1:])
     # TODO others
     raise ValueError(f"Cannot parse archived directive: '{line}'")
 
 
-def parse_is_archived_has_metadata(args: List[str]) -> ArchivedBy:
+def parse_archived_has_metadata(args: List[str]) -> ArchivedBy:
     if len(args) != 2:
         raise ValueError(
-            f"Cannot parse archived by-metadata directive: '{', '.join(args)}'"
+            f"Cannot parse archived has-metadata directive: '{', '.join(args)}'"
         )
     key_param = args[1]
     values_param: Set[str] = set()
@@ -93,3 +101,23 @@ def parse_is_archived_has_metadata(args: List[str]) -> ArchivedBy:
         if pval is not None:
             values_param.add(pval)
     return ArchivedByMetadata(key=key_param, values=values_param)
+
+
+def parse_calc(s: str) -> Optional[CalcBy]:
+    line = parse_string(s)
+    if line is None:
+        return None
+    parts = shlex.split(line)
+    if parts[0] == "from-metadata":
+        return parse_calc_from_metadata(parts[1:])
+    # TODO others
+    raise ValueError(f"Cannot parse calc directive: '{line}'")
+
+
+def parse_calc_from_metadata(args: List[str]) -> CalcBy:
+    if len(args) != 1:
+        raise ValueError(
+            f"Cannot parse calc from-metadata directive: '{', '.join(args)}'"
+        )
+    format_param = args[1]
+    return CalcByMetadata(format=format_param)

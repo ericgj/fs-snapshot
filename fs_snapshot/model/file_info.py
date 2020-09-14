@@ -15,6 +15,8 @@ class FileInfo:
     size: int
     archived: bool
     metadata: Dict[str, str]
+    file_group: Optional[str] = None
+    file_type: Optional[str] = None
 
     @property
     def hexdigest(self):
@@ -39,6 +41,8 @@ class FileInfo:
             "modified": self.modified,
             "size": self.size,
             "archived": self.archived,
+            "file_group": self.file_group,
+            "file_type": self.file_type,
             "metadata": self.metadata,
         }
 
@@ -103,6 +107,8 @@ class Moved:
     original: FileInfo
     dir_name: str
     metadata: Dict[str, str]
+    file_group: Optional[str]
+    file_type: Optional[str]
 
     def to_json(self):
         return {
@@ -110,6 +116,8 @@ class Moved:
             "original": self.original.to_json(),
             "dir_name": self.dir_name,
             "metadata": self.metadata,
+            "file_group": self.file_group,
+            "file_type": self.file_type,
         }
 
 
@@ -118,6 +126,8 @@ class Renamed:
     original: FileInfo
     base_name: str
     metadata: Dict[str, str]
+    file_group: Optional[str]
+    file_type: Optional[str]
 
     def to_json(self):
         return {
@@ -125,6 +135,8 @@ class Renamed:
             "original": self.original.to_json(),
             "base_name": self.base_name,
             "metadata": self.metadata,
+            "file_group": self.file_group,
+            "file_type": self.file_type,
         }
 
 
@@ -133,6 +145,8 @@ class Archived:
     original: FileInfo
     dir_name: str
     metadata: Dict[str, str]
+    file_group: Optional[str]
+    file_type: Optional[str]
 
     def to_json(self):
         return {
@@ -140,6 +154,8 @@ class Archived:
             "original": self.original.to_json(),
             "dir_name": self.dir_name,
             "metadata": self.metadata,
+            "file_group": self.file_group,
+            "file_type": self.file_type,
         }
 
 
@@ -204,18 +220,48 @@ def diff_file_info(a: FileInfo, b: FileInfo) -> Optional[Action]:
 
         if subtable == (False, True):
             if b.archived:
-                return Archived(original=a, dir_name=b_dir, metadata=b.metadata)
+                return Archived(
+                    original=a,
+                    dir_name=b_dir,
+                    metadata=b.metadata,
+                    file_group=b.file_group,
+                    file_type=b.file_type,
+                )
             else:
-                return Moved(original=a, dir_name=b_dir, metadata=b.metadata)
+                return Moved(
+                    original=a,
+                    dir_name=b_dir,
+                    metadata=b.metadata,
+                    file_group=b.file_group,
+                    file_type=b.file_type,
+                )
 
         if subtable == (True, False):
-            return Renamed(original=a, base_name=b_name, metadata=b.metadata)
+            return Renamed(
+                original=a,
+                base_name=b_name,
+                metadata=b.metadata,
+                file_group=b.file_group,
+                file_type=b.file_type,
+            )
 
         if subtable == (False, False):
             if b.archived:
-                return Archived(original=a, dir_name=b_dir, metadata=b.metadata)
+                return Archived(
+                    original=a,
+                    dir_name=b_dir,
+                    metadata=b.metadata,
+                    file_group=b.file_group,
+                    file_type=b.file_type,
+                )
             else:
-                return Moved(original=a, dir_name=b_dir, metadata=b.metadata)
+                return Moved(
+                    original=a,
+                    dir_name=b_dir,
+                    metadata=b.metadata,
+                    file_group=b.file_group,
+                    file_type=b.file_type,
+                )
 
     if table == (False, True):
         return Modified(original=a, modified=b.modified, size=b.size, digest=b.digest)
@@ -225,15 +271,29 @@ def diff_file_info(a: FileInfo, b: FileInfo) -> Optional[Action]:
 
 def update(file_info: FileInfo, action: Action) -> FileInfo:
     if isinstance(action, Moved):
-        return replace(file_info, dir_name=action.dir_name, metadata=action.metadata,)
+        return replace(
+            file_info,
+            dir_name=action.dir_name,
+            metadata=action.metadata,
+            file_group=action.file_group,
+            file_type=action.file_type,
+        )
     if isinstance(action, Renamed):
-        return replace(file_info, base_name=action.base_name, metadata=action.metadata,)
+        return replace(
+            file_info,
+            base_name=action.base_name,
+            metadata=action.metadata,
+            file_group=action.file_group,
+            file_type=action.file_type,
+        )
     if isinstance(action, Archived):
         return replace(
             file_info,
             dir_name=action.dir_name,
             archived=True,
             metadata=action.metadata,
+            file_group=action.file_group,
+            file_type=action.file_type,
         )
 
     if isinstance(action, Modified):

@@ -34,7 +34,11 @@ def main(config: Config):
 def store(config: Config, id: bytes, match_path: str):
     conn, store_db = connect_store_db(config)
     files: Iterator[FileInfo] = filesys.search(
-        config.root_dir, match_path, is_archived=config.is_archived
+        config.root_dir,
+        match_path,
+        is_archived=config.is_archived,
+        calc_file_group=config.file_group_from,
+        calc_file_type=config.file_type_from,
     )
     if LOGGER.level <= logging.DEBUG:  # don't degrade performance if not debugging
         files = log_store(files)
