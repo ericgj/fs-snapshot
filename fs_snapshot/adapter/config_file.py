@@ -27,6 +27,7 @@ def parse_section(section: Dict[str, str]) -> Config:
     options = [
         ("match_paths", parse_string_list(section.get("match_paths", ""))),
         ("root_dir", parse_string(section.get("root_dir", ""))),
+        ("log_file", parse_string(section.get("log_file", ""))),
         ("store_db_file", parse_string(section.get("store_db_file", ""))),
         (
             "store_db_import_table",
@@ -94,9 +95,9 @@ def parse_archived_has_metadata(args: List[str]) -> ArchivedBy:
         raise ValueError(
             f"Cannot parse archived has-metadata directive: '{', '.join(args)}'"
         )
-    key_param = args[1]
+    key_param = args[0]
     values_param: Set[str] = set()
-    for v in args[2].split(","):
+    for v in args[1].split(","):
         pval = parse_string(v)
         if pval is not None:
             values_param.add(pval)
@@ -119,5 +120,5 @@ def parse_calc_from_metadata(args: List[str]) -> CalcBy:
         raise ValueError(
             f"Cannot parse calc from-metadata directive: '{', '.join(args)}'"
         )
-    format_param = args[1]
+    format_param = args[0]
     return CalcByMetadata(format=format_param)

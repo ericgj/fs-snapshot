@@ -1,4 +1,3 @@
-import json
 import logging
 import sys
 from threading import Thread
@@ -16,11 +15,11 @@ LOGGER = get_logger(__name__)
 def main(config: Config):
     conn, store_db = connect_store_db(config)
     id = store_db.create_import(conn, config.metadata)
-    metadata_string = json.dumps(config.metadata)
+    config_desc = config_log_string(config)
 
     threads = [Thread(target=store, args=(config, id, mp)) for mp in config.match_paths]
 
-    LOGGER.info(f"Start: {metadata_string}")
+    LOGGER.info(f"Start:\n{config_desc}")
     for th in threads:
         th.start()
 
@@ -28,7 +27,7 @@ def main(config: Config):
         th.join()
 
     print(id.hex(), file=sys.stdout)
-    LOGGER.info(f"End: {metadata_string}")
+    LOGGER.info(f"End:\n{config_desc}")
 
 
 def store(config: Config, id: bytes, match_path: str):
@@ -49,3 +48,14 @@ def log_store(file_infos: Iterator[FileInfo]) -> Generator[FileInfo, None, None]
     for file_info in file_infos:
         LOGGER.debug(f"Storing: {file_info.file_name}")
         yield file_info
+
+
+def config_log_string(config: Config) -> str:
+    return "\n".join(
+        [
+            f"    root_dir: {config.root_dir}",
+            f"    store_db_file: {config.store_db_file}",
+            "    metadata:",
+        ]
+        + [f"        {k}: {v}" for (k, v) in config.metadata.items()]
+    )

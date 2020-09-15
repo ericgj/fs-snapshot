@@ -28,7 +28,7 @@ Data Type + System:
 "Largest and oldest" meaning not, first the largest, and then the oldest within
 the largest; but treating file age and size as equal factors. We are just as
 interested in finding the oldest studies to archive as the largest. This kind
-of query could be done using `RANK()` in a subquery and then `MAX(age_rank +
+of query could be done using `RANK()` in a subquery and then `MIN(size_rank +
 file_age_rank)`, I think.
 
 But actually it might be simpler than this. I think the rule for looking at
@@ -47,7 +47,7 @@ Each file record in the database stores its 'project' in a full-fledged field
 can then (similar to the `archived` business) define which metadata fields
 make up the 'project'.
 
-    [fs-snapshot:ecg/extract]
+    [ecg/extract]
     metadata = 
         data_type = ECG
         file_type = Extract

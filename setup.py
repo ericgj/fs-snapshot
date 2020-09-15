@@ -1,5 +1,6 @@
 from setuptools import setup
 
+tests_require = ["pytest", "hypothesis"]
 
 setup(
     name="fs-snapshot",
@@ -10,6 +11,7 @@ setup(
     email="ericgj72@gmail.com",
     packages=["fs_snapshot"],
     entry_points={"console_scripts": ["fs-snapshot = fs_snapshot.__main__:main"]},
-    tests_require=["pytest", "hypothesis"],
+    tests_require=tests_require,
+    extras_require={"test": tests_require},  # to make pip happy
     zip_safe=False,  # to make mypy happy
 )
