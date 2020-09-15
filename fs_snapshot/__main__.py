@@ -26,17 +26,28 @@ def main():
     diff_parser(sub, [common])
 
     args = program.parse_args()
-    config = get_config(args)
 
-    logger = init_logger(
-        level=logging.DEBUG if args.debug else logging.INFO, log_file=config.log_file
-    )
+    logger = None
+    try:
+        config = get_config(args)
 
-    init_db_logger(
-        name=config.store_db_log_name,
-        level=logging.DEBUG if args.debug else logging.INFO,
-        log_file=config.store_db_log_file,
-    )
+        logger = init_logger(
+            level=logging.DEBUG if args.debug else logging.INFO,
+            log_file=config.log_file,
+        )
+
+        init_db_logger(
+            name=config.store_db_log_name,
+            level=logging.DEBUG if args.debug else logging.INFO,
+            log_file=config.store_db_log_file,
+        )
+    except Exception as e:
+        if logger is not None:
+            logger.exception(e)
+        print(
+            f"An unexpected error occurred:\n\n    {e}", file=sys.stderr,
+        )
+        exit(-1)
 
     try:
         args.func(config, args)

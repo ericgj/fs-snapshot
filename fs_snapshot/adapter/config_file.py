@@ -1,4 +1,5 @@
 from configparser import ConfigParser
+import os.path
 import shlex
 from typing import Optional, List, Dict, Set
 
@@ -14,6 +15,8 @@ DEFAULT_SECTION = "fs-snapshot"
 
 
 def parse_file(file_name: str) -> Dict[str, Config]:
+    if not os.path.exists(file_name):
+        raise ValueError(f"Config file does not exist: {file_name}")
     p = ConfigParser(default_section=DEFAULT_SECTION)
     p.read([file_name])
     return parse_sections(p)
