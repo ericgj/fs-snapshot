@@ -72,6 +72,7 @@ def connect(db_file: str, logger: Optional[Logger] = None) -> sqlite3.Connection
     if logger is not None:
         c.set_trace_callback(logger.info)
     c.execute('PRAGMA foreign_keys = "ON"')
+    c.execute('PRAGMA journal_mode = "WAL"')
     c.enable_load_extension(True)
     for ext in fetch_extensions():
         c.load_extension(ext)

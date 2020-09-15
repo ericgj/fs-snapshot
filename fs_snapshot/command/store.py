@@ -1,4 +1,5 @@
 import logging
+import sqlite3
 import sys
 from threading import Thread
 from typing import Iterator, Generator
@@ -6,6 +7,7 @@ from typing import Iterator, Generator
 from .util import connect_store_db
 from ..adapter import filesys
 from ..adapter.logging import get_logger
+from ..adapter.store import Store
 from ..model.config import Config
 from ..model.file_info import FileInfo
 
@@ -13,25 +15,54 @@ LOGGER = get_logger(__name__)
 
 
 def main(config: Config):
+    config_desc = config_log_string(config)
+    LOGGER.info(f"Start: {config.name}\n{config_desc}")
+
     conn, store_db = connect_store_db(config)
     id = store_db.create_import(conn, config.name, config.metadata)
-    config_desc = config_log_string(config)
 
-    threads = [Thread(target=store, args=(config, id, mp)) for mp in config.match_paths]
+    if config.multithread:
+        conn.close()
+        store_multithread(config, id)
+    else:
+        store_singlethread(conn, store_db, config, id)
 
-    LOGGER.info(f"Start:\n{config_desc}")
+    print(id.hex(), file=sys.stdout)
+    LOGGER.info(f"End: {config.name}\n{config_desc}")
+
+
+def store_multithread(config: Config, id: bytes):
+    threads = [
+        Thread(target=connect_and_store, args=(config, id, mp))
+        for mp in config.match_paths
+    ]
+
     for th in threads:
         th.start()
 
     for th in threads:
         th.join()
 
-    print(id.hex(), file=sys.stdout)
-    LOGGER.info(f"End:\n{config_desc}")
+
+def store_singlethread(
+    conn: sqlite3.Connection, store_db: Store, config: Config, id: bytes
+):
+    for mp in config.match_paths:
+        store(conn, store_db, config, id, mp)
 
 
-def store(config: Config, id: bytes, match_path: str):
+def connect_and_store(config: Config, id: bytes, match_path: str):
     conn, store_db = connect_store_db(config)
+    store(conn, store_db, config, id, match_path)
+
+
+def store(
+    conn: sqlite3.Connection,
+    store_db: Store,
+    config: Config,
+    id: bytes,
+    match_path: str,
+):
     files: Iterator[FileInfo] = filesys.search(
         config.root_dir,
         match_path,

@@ -37,6 +37,7 @@ class Config:
     store_db_file: str = "fs-snapshot.sqlite"
     store_db_import_table: str = "__import__"
     store_db_file_info_table: str = "file_info"
+    multithread: bool = False  # NOTE: not set from config file currently
     metadata: Dict[str, str] = field(default_factory=dict)
     archived_by: ArchivedBy = NotArchived()
     file_group_by: CalcBy = NoCalc()
