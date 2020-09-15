@@ -29,6 +29,7 @@ def test_store_single_match_path():
         ),
     ]
     config = build_config(
+        name="ECG Extracts",
         root_dir=root_dir,
         match_paths=match_paths,
         metadata={"file_type": "Extract", "data_type": "ECG"},
@@ -46,7 +47,7 @@ def test_store_single_match_path():
     remove_db_files(config)
     store.main(config)
 
-    assert_import_created_with_tags(config, "Extract", "ECG")
+    assert_import_created_with_name_and_tags(config, "ECG Extracts", "Extract", "ECG")
 
     exp = len([f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))])
     assert_n_files_stored(config, exp)
@@ -67,6 +68,7 @@ def test_store_multiple_match_paths_with_archive():
         ),
     ]
     config = build_config(
+        name="ECG Extracts",
         root_dir=root_dir,
         match_paths=match_paths,
         metadata={"file_type": "Extract", "data_type": "ECG"},
@@ -84,7 +86,7 @@ def test_store_multiple_match_paths_with_archive():
     remove_db_files(config)
     store.main(config)
 
-    assert_import_created_with_tags(config, "Extract", "ECG")
+    assert_import_created_with_name_and_tags(config, "ECG Extracts", "Extract", "ECG")
 
     exp_normal = [f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))]
     exp_archived = [
@@ -104,6 +106,7 @@ def test_store_with_calc():
         ),
     ]
     config = build_config(
+        name="ECG Extracts",
         root_dir=root_dir,
         match_paths=match_paths,
         metadata={"file_type": "Extract", "data_type": "ECG"},
@@ -121,7 +124,7 @@ def test_store_with_calc():
     remove_db_files(config)
     store.main(config)
 
-    assert_import_created_with_tags(config, "Extract", "ECG")
+    assert_import_created_with_name_and_tags(config, "ECG Extracts", "Extract", "ECG")
 
     """ 
     Note: this is quite fragile. Depends on the protocol part of the file name
@@ -139,13 +142,16 @@ def test_store_with_calc():
     assert_files_stored_with_group_and_type(config, exps)
 
 
-def assert_import_created_with_tags(config: Config, file_type: str, data_type: str):
+def assert_import_created_with_name_and_tags(
+    config: Config, name: str, file_type: str, data_type: str
+):
     conn = sqlite3.connect(config.store_db_file)
-    c = conn.execute("SELECT `tags` FROM `__import__` LIMIT 1;")
+    c = conn.execute("SELECT `name`, `tags` FROM `__import__` LIMIT 1;")
     row = c.fetchone()
     if row is None:
         assert False, "DB error: unable to select"
-    tags = deserialized_tags(str(row[0]))
+    assert str(row[0]) == name
+    tags = deserialized_tags(str(row[1]))
     assert tags.get("file_type") == file_type, str(tags)
     assert tags.get("data_type") == data_type, str(tags)
 
@@ -204,6 +210,7 @@ def assert_imported_files(config: Config, file_names: Iterable[str], archived=Fa
 
 def build_config(
     *,
+    name: str,
     root_dir: str,
     match_paths: List[str],
     metadata: Dict[str, str],
@@ -212,6 +219,7 @@ def build_config(
     file_type_by: CalcBy,
 ) -> Config:
     return Config(
+        name=name,
         match_paths=match_paths,
         root_dir=root_dir,
         log_file=os.path.join(ROOT_DIR, "output", "fs-snapshot.log"),

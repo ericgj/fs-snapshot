@@ -73,7 +73,7 @@ def test_diff_changed(pair: Tuple[Iterable[FileInfo], Iterable[FileInfo]]):
     store_db.init_tables(conn)
 
     latest_id, compares = import_and_compare(
-        conn, store_db, original_files, changed_files
+        conn, store_db, config.name, original_files, changed_files
     )
 
     actions = diff_all(compares)
@@ -111,7 +111,7 @@ def test_diff_copied(pair: Tuple[List[FileInfo], List[FileInfo]]):
     store_db.init_tables(conn)
 
     latest_id, compares = import_and_compare(
-        conn, store_db, original_files, original_files + copied_files
+        conn, store_db, config.name, original_files, original_files + copied_files
     )
 
     actions = diff_all(compares)
@@ -142,7 +142,7 @@ def test_diff_created(
     store_db.init_tables(conn)
 
     latest_id, compares = import_and_compare(
-        conn, store_db, original_files, original_files + created_files
+        conn, store_db, config.name, original_files, original_files + created_files
     )
 
     actions = diff_all(compares)
@@ -173,7 +173,7 @@ def test_diff_removed(
     store_db.init_tables(conn)
 
     latest_id, compares = import_and_compare(
-        conn, store_db, original_files + removed_files, original_files
+        conn, store_db, config.name, original_files + removed_files, original_files
     )
 
     actions = diff_all(compares)
@@ -218,6 +218,7 @@ def build_config() -> Config:
     empty_match_paths: List[str] = []
     empty_metadata: Dict[str, str] = {}
     return Config(
+        name="Test",
         match_paths=empty_match_paths,
         root_dir=".",
         log_file=os.path.join(ROOT_DIR, "output", "fs-snapshot.log"),
@@ -232,14 +233,15 @@ def build_config() -> Config:
 def import_and_compare(
     conn: sqlite3.Connection,
     store_db: Store,
+    name: str,
     original_files: Iterable[FileInfo],
     changed_files: Iterable[FileInfo],
 ) -> Tuple[bytes, List[CompareStates]]:
-    id = store_db.create_import(conn)
+    id = store_db.create_import(conn, name)
     store_db.import_files(conn, id, original_files)
 
     sleep(1.1)
-    new_id = store_db.create_import(conn)
+    new_id = store_db.create_import(conn, name)
     store_db.import_files(conn, new_id, changed_files)
 
     latest_id, compares = store_db.fetch_file_import_compare_latest(conn, id)

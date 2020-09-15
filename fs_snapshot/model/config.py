@@ -30,6 +30,7 @@ CalcBy = Union[NoCalc, CalcByMetadata]
 
 @dataclass
 class Config:
+    name: str
     match_paths: List[str]
     root_dir: str = "."
     log_file: Optional[str] = None

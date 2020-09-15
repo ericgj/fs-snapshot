@@ -14,7 +14,7 @@ LOGGER = get_logger(__name__)
 
 def main(config: Config):
     conn, store_db = connect_store_db(config)
-    id = store_db.create_import(conn, config.metadata)
+    id = store_db.create_import(conn, config.name, config.metadata)
     config_desc = config_log_string(config)
 
     threads = [Thread(target=store, args=(config, id, mp)) for mp in config.match_paths]

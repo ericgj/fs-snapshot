@@ -20,11 +20,12 @@ def parse_file(file_name: str) -> Dict[str, Config]:
 
 
 def parse_sections(p: ConfigParser) -> Dict[str, Config]:
-    return dict([(name, parse_section(dict(p[name]))) for name in p.sections()])
+    return dict([(name, parse_section(name, dict(p[name]))) for name in p.sections()])
 
 
-def parse_section(section: Dict[str, str]) -> Config:
+def parse_section(name: str, section: Dict[str, str]) -> Config:
     options = [
+        ("name", name),
         ("match_paths", parse_string_list(section.get("match_paths", ""))),
         ("root_dir", parse_string(section.get("root_dir", ""))),
         ("log_file", parse_string(section.get("log_file", ""))),

@@ -30,6 +30,7 @@ TAG_VALUE_DELIMITER = ":"
 class FileImport:
     id: bytes
     timestamp: float
+    name: str
     tags: Dict[str, str]
     files: List[file_info.FileInfo]
 
@@ -42,13 +43,13 @@ class Store:
 
     @db.log_errors
     def create_import(
-        self, conn: sqlite3.Connection, tags: Dict[str, str] = {}
+        self, conn: sqlite3.Connection, name: str, tags: Dict[str, str] = {}
     ) -> bytes:
         id = self.get_import_id()
         with conn:
             self.init_tables(conn)
             ts = time()
-            self.init_import(conn, id, ts, tags)
+            self.init_import(conn, id, ts, name, tags)
             self.delete_file_infos(conn, id)
         return id
 
@@ -92,7 +93,7 @@ class Store:
         self, conn: sqlite3.Connection, id: bytes
     ) -> Optional[bytes]:
         file_import = self.fetch_import(conn, id)
-        return self.fetch_latest_import_id_for_tags(conn, file_import.tags)
+        return self.fetch_latest_import_id_for_name(conn, file_import.name)
 
     def get_import_id(self) -> bytes:  # impure
         return uuid4().bytes
@@ -116,9 +117,12 @@ class Store:
         conn: sqlite3.Connection,
         id: bytes,
         timestamp: float,
+        name: str,
         tags: Dict[str, str] = {},
     ):
-        sql, params = sql_insert_import(self.import_table, id, int(timestamp), tags)
+        sql, params = sql_insert_import(
+            self.import_table, id, int(timestamp), name, tags
+        )
         db.execute(conn, sql, params)
 
     def delete_file_infos(self, conn: sqlite3.Connection, id: bytes):
@@ -139,10 +143,10 @@ class Store:
         )
         return db.select(conn, sql, params)
 
-    def fetch_latest_import_id_for_tags(
-        self, conn: sqlite3.Connection, tags: Dict[str, str]
+    def fetch_latest_import_id_for_name(
+        self, conn: sqlite3.Connection, name: str
     ) -> Optional[bytes]:
-        sql, params = sql_select_latest_import_for_tags(self.import_table, tags)
+        sql, params = sql_select_latest_import_for_name(self.import_table, name)
         try:
             row = db.select_one(conn, sql, params)
             return bytes(row["id"])
@@ -165,15 +169,18 @@ class Store:
 
 def sql_script_init_import_table(import_table: str) -> str:
     import_table_literal = db.name_literal(import_table)
-    index_literal = db.name_literal(f"{import_table}_timestamp")
+    timestamp_index_literal = db.name_literal(f"{import_table}_timestamp")
+    name_index_literal = db.name_literal(f"{import_table}_name")
     return f"""
 CREATE TABLE IF NOT EXISTS {import_table_literal}
     ( `id` BYTES PRIMARY KEY
     , `timestamp` INT
+    , `name` TEXT
     , `tags` TEXT
     )
 ;
-CREATE INDEX IF NOT EXISTS {index_literal} ON {import_table_literal} (`timestamp`);
+CREATE INDEX IF NOT EXISTS {timestamp_index_literal} ON {import_table_literal} (`timestamp`);
+CREATE INDEX IF NOT EXISTS {name_index_literal} ON {import_table_literal} (`name`);
     """
 
 
@@ -211,16 +218,16 @@ CREATE INDEX IF NOT EXISTS {file_type_index_literal} ON {file_info_table_literal
 
 
 def sql_insert_import(
-    import_table: str, id: bytes, timestamp: int, tags: Dict[str, str],
+    import_table: str, id: bytes, timestamp: int, name: str, tags: Dict[str, str],
 ) -> Tuple[str, Iterable[Any]]:
     import_table_literal = db.name_literal(import_table)
     return (
         f"""
-INSERT INTO {import_table_literal} (`id`,`timestamp`, `tags`)
-    VALUES (?, ?, ?)
+INSERT INTO {import_table_literal} (`id`,`timestamp`, `name`, `tags`)
+    VALUES (?, ?, ?, ?)
 ;
     """,
-        (id, timestamp, serialized_tags(tags)),
+        (id, timestamp, name, serialized_tags(tags)),
     )
 
 
@@ -279,7 +286,7 @@ def sql_fetch_import(import_table: str, id: bytes) -> Tuple[str, Iterable[Any]]:
     import_table_literal = db.name_literal(import_table)
     return (
         f"""
-SELECT `id`, `timestamp`, `tags`
+SELECT `id`, `timestamp`, `name`, `tags`
 FROM {import_table_literal}
 WHERE `id` = ?
     """,
@@ -296,6 +303,7 @@ def sql_select_imported_file_infos(
         f"""
 SELECT a.*
      , b.`timestamp` AS `import_timestamp`
+     , b.`name` AS `import_name`
      , b.`tags` as `import_tags`
 FROM {file_info_table_literal} AS a 
     INNER JOIN {import_table_literal} AS b
@@ -304,6 +312,23 @@ WHERE b.`id` = ?
 ;
     """,
         (id,),
+    )
+
+
+def sql_select_latest_import_for_name(
+    import_table: str, name: str
+) -> Tuple[str, Iterable[Any]]:
+    import_table_literal = db.name_literal(import_table)
+    return (
+        f"""
+SELECT `id`, `timestamp`, `name`, `tags`
+FROM {import_table_literal}
+WHERE `name` = ?
+ORDER BY `timestamp` DESC
+LIMIT 1
+;
+    """,
+        (name,),
     )
 
 
@@ -316,7 +341,7 @@ def sql_select_latest_import_for_tags(
         where_literal = "`tags` IS NULL OR LENGTH(`tags`) = 0"
     return (
         f"""
-SELECT `id`, `timestamp`, `tags`
+SELECT `id`, `timestamp`, `name`, `tags`
 FROM {import_table_literal}
 WHERE {where_literal}
 ORDER BY `timestamp` DESC
@@ -577,8 +602,9 @@ WHERE prev.`digest` IS NULL
 def deserialized_import(row: sqlite3.Row) -> FileImport:
     id = bytes(row["id"])
     ts = float(row["timestamp"])
+    name = str(row["name"])
     tags = deserialized_tags(str(row["tags"]))
-    return FileImport(id=id, timestamp=ts, tags=tags, files=[],)
+    return FileImport(id=id, timestamp=ts, name=name, tags=tags, files=[],)
 
 
 def deserialized_file_import(rows: List[sqlite3.Row]) -> Optional[FileImport]:
@@ -586,10 +612,12 @@ def deserialized_file_import(rows: List[sqlite3.Row]) -> Optional[FileImport]:
         return None
     id = bytes(rows[0]["id"])
     ts = float(rows[0]["import_timestamp"])
+    name = str(rows[0]["name"])
     tags = deserialized_tags(str(rows[0]["import_tags"]))
     return FileImport(
         id=id,
         timestamp=ts,
+        name=name,
         tags=tags,
         files=[deserialized_file_info(row) for row in rows],
     )
