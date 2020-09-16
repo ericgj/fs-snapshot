@@ -2,15 +2,18 @@ from functools import reduce
 import hashlib
 import os
 import os.path
-from glob import glob
+from glob import iglob
 import re
 from typing import Optional, Dict, Callable, Generator
 
 from ..model.file_info import FileInfo, Digest
 from ..util import re_
+from ..adapter.logging import get_logger
 
 REGEXP_VAR = re.compile("(\\{[a-zA-Z0-9_]+\\})", flags=re.I + re.A)
 REGEXP_VAR_OR_GLOB = re.compile("(\\{[a-zA-Z0-9_]+\\}|\\*\\*|\\*)", flags=re.I + re.A)
+
+LOGGER = get_logger(__name__)
 
 
 def search(
@@ -21,7 +24,8 @@ def search(
     calc_file_type: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
 ) -> Generator[FileInfo, None, None]:
     matcher = Matcher(os.path.join(root_dir, match_path))
-    for fname in glob(matcher.glob):
+    for fname in iglob(matcher.glob):
+        LOGGER.debug(f"Fetched: {fname}")
         metadata = matcher.match(fname)
         if metadata is not None:
             yield fetch_file_info(
@@ -45,7 +49,9 @@ def fetch_file_info(
     metadata: Dict[str, str] = {},
 ) -> FileInfo:
     fstat = os.stat(fname)
+    LOGGER.debug(f"Digest started: {fname}")
     fdigest = digest(fname)
+    LOGGER.debug(f"Digest ended: {fname}")
     return FileInfo(
         created=float(fstat.st_ctime),
         modified=float(fstat.st_mtime),
