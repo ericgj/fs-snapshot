@@ -49,8 +49,9 @@ def fetch_file_info(
     metadata: Dict[str, str] = {},
 ) -> FileInfo:
     fstat = os.stat(fname)
+    size = int(fstat.st_size)
     LOGGER.debug(f"Digest started: {fname}")
-    fdigest = digest(fname)
+    fdigest = digest(fname, size)
     LOGGER.debug(f"Digest ended: {fname}")
     return FileInfo(
         created=float(fstat.st_ctime),
@@ -66,10 +67,11 @@ def fetch_file_info(
     )
 
 
-def digest(fname: str) -> Digest:
+def digest(fname: str, size: int) -> Digest:
     h = hashlib.md5()
+    chunk_size = min(size, 2 ** 20)  # at most 1MB per chunk == 1000 iterations/GB
     with open(fname, "rb") as f:
-        for chunk in iter(lambda: f.read(1024), b""):
+        for chunk in iter(lambda: f.read(chunk_size), b""):
             h.update(chunk)
     return h.digest()
 
