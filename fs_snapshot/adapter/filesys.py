@@ -69,7 +69,7 @@ def fetch_file_info(
 
 def digest(fname: str, size: int) -> Digest:
     h = hashlib.md5()
-    chunk_size = min(size, 2 ** 20)  # at most 1MB per chunk == 1000 iterations/GB
+    chunk_size = min(size, 2 ** 23)  # at most 8MB per chunk ~= 100 iterations/GB
     with open(fname, "rb") as f:
         for chunk in iter(lambda: f.read(chunk_size), b""):
             h.update(chunk)
