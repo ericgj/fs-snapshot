@@ -23,6 +23,9 @@ copies (independent of OS, file system, reported modified date, etc.) but
 since we are mainly concerned with the same files in the same places, have
 they changed, I think using file size and modified time is fine.
 
+_UPDATE: ECG runtime went down to 4 minutes without digests. From 7 hours._
+
+
 (2)
 Secondly -- I think the syntax for deriving file group and file type from
 elements of the path or filename is a bit limiting. It does make sense for

@@ -1,4 +1,5 @@
 from configparser import ConfigParser
+from functools import reduce
 import os.path
 import shlex
 from typing import Optional, List, Dict, Set
@@ -29,7 +30,7 @@ def parse_sections(p: ConfigParser) -> Dict[str, Config]:
 def parse_section(name: str, section: Dict[str, str]) -> Config:
     options = [
         ("name", name),
-        ("match_paths", parse_string_list(section.get("match_paths", ""))),
+        ("match_paths", parse_match_paths(section.get("match_paths", ""))),
         ("root_dir", parse_string(section.get("root_dir", ""))),
         ("log_file", parse_string(section.get("log_file", ""))),
         ("store_db_file", parse_string(section.get("store_db_file", ""))),
@@ -45,7 +46,6 @@ def parse_section(name: str, section: Dict[str, str]) -> Config:
         ("metadata", parse_string_dict(section.get("metadata", ""))),
         ("archived_by", parse_archived_by(section.get("archived_by", ""))),
         ("file_group_by", parse_calc(section.get("file_group_by", ""))),
-        ("file_type_by", parse_calc(section.get("file_type_by", ""))),
     ]
     return Config(**dict([(k, v) for (k, v) in options if v is not None]))  # type: ignore
 
@@ -89,6 +89,27 @@ def parse_string_dict(s: str) -> Optional[Dict[str, str]]:
             raise ValueError(f"Cannot parse as dict value: '{line}'")
         ret[key] = value
     return ret
+
+
+def parse_match_paths(s: str) -> Dict[str, List[str]]:
+    def _parse(match_paths, line):
+        tokens = shlex.split(line)
+        if len(tokens) < 2:
+            raise ValueError(f"Cannot parse as match path: '{line}'")
+        key = parse_string(tokens[0])
+        value = parse_string(" ".join(tokens[1:]))
+        if key is None or value is None:
+            raise ValueError(f"Cannot parse as match path: '{line}'")
+        if key not in match_paths:
+            match_paths[key] = []
+        match_paths[key].append(value)
+        return match_paths
+
+    init_: Dict[str, List[str]] = {}
+    lines = parse_string_list(s)
+    if lines is None:
+        return init_
+    return reduce(_parse, lines, init_)
 
 
 def parse_archived_by(s: str) -> Optional[ArchivedBy]:

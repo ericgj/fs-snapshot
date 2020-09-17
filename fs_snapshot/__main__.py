@@ -3,6 +3,7 @@ from binascii import unhexlify
 import logging
 import sys
 
+from .command import config as command_config
 from .command import store as command_store
 from .command import diff as command_diff
 from .adapter import config_file
@@ -22,6 +23,7 @@ def main():
     )
     sub = program.add_subparsers(help="command help")
 
+    config_parser(sub, [common])
     store_parser(sub, [common])
     diff_parser(sub, [common])
 
@@ -60,6 +62,14 @@ def main():
         exit(-1)
 
 
+def config_parser(root, parents):
+    cmd = root.add_parser(
+        "config", description="Display config (for debugging)", parents=parents
+    )
+    cmd.set_defaults(func=exec_config)
+    return cmd
+
+
 def store_parser(root, parents):
     cmd = root.add_parser("store", description="Store a snapshot", parents=parents)
     cmd.set_defaults(func=exec_store)
@@ -73,6 +83,10 @@ def diff_parser(root, parents):
     )
     cmd.set_defaults(func=exec_diff)
     return cmd
+
+
+def exec_config(config: Config, args):
+    command_config.main(config, args.config)
 
 
 def exec_store(config: Config, args):

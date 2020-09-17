@@ -1,10 +1,11 @@
 from dataclasses import dataclass, field
 import os.path
-from typing import Optional, Union, List, Dict, Set
+from typing import Optional, Union, Mapping, Sequence, Dict, Set
 
 
 class NotArchived:
-    pass
+    def __str__(self):
+        return "NotArchived()"
 
 
 @dataclass
@@ -12,17 +13,24 @@ class ArchivedByMetadata:
     key: str
     values: Set[str]
 
+    def __str__(self):
+        return f"ArchivedByMetadata({self.key}, {self.values})"
+
 
 ArchivedBy = Union[NotArchived, ArchivedByMetadata]
 
 
 class NoCalc:
-    pass
+    def __str__(self):
+        return "NoCalc()"
 
 
 @dataclass
 class CalcByMetadata:
     format: str
+
+    def __str__(self):
+        return f"CalcByMetadata({self.format})"
 
 
 CalcBy = Union[NoCalc, CalcByMetadata]
@@ -31,7 +39,7 @@ CalcBy = Union[NoCalc, CalcByMetadata]
 @dataclass
 class Config:
     name: str
-    match_paths: List[str]
+    match_paths: Mapping[str, Sequence[str]]
     root_dir: str = "."
     log_file: Optional[str] = None
     store_db_file: str = "fs-snapshot.sqlite"
@@ -42,7 +50,6 @@ class Config:
     metadata: Dict[str, str] = field(default_factory=dict)
     archived_by: ArchivedBy = NotArchived()
     file_group_by: CalcBy = NoCalc()
-    file_type_by: CalcBy = NoCalc()
 
     @property
     def store_db_log_file(self) -> str:
@@ -70,15 +77,9 @@ class Config:
             return None
 
         if isinstance(self.file_group_by, CalcByMetadata):
-            return self.file_group_by.format.format(**metadata)
+            try:
+                return self.file_group_by.format.format(**metadata)
+            except KeyError:
+                return None
 
         raise ValueError(f"Unknown CalcBy type: {type(self.file_group_by)}")
-
-    def file_type_from(self, metadata: Dict[str, str]) -> Optional[str]:
-        if isinstance(self.file_type_by, NoCalc):
-            return None
-
-        if isinstance(self.file_type_by, CalcByMetadata):
-            return self.file_type_by.format.format(**metadata)
-
-        raise ValueError(f"Unknown CalcBy type: {type(self.file_type_by)}")

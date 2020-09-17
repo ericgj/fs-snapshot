@@ -4,7 +4,7 @@ import os
 import os.path
 from glob import iglob
 import re
-from typing import Optional, Dict, Callable, Generator
+from typing import Optional, Sequence, Dict, Callable, Generator
 
 from ..model.file_info import FileInfo, Digest
 from ..util import re_
@@ -18,29 +18,28 @@ LOGGER = get_logger(__name__)
 
 def search(
     root_dir: str,
-    match_path: str,
+    match_paths: Sequence[str],
+    file_type: Optional[str] = None,
     gather_digests: bool = False,
     is_archived: Optional[Callable[[Dict[str, str]], bool]] = None,
     calc_file_group: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
-    calc_file_type: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
 ) -> Generator[FileInfo, None, None]:
-    matcher = Matcher(os.path.join(root_dir, match_path))
-    for fname in iglob(matcher.glob):
-        LOGGER.debug(f"Fetched: {fname}")
-        metadata = matcher.match(fname)
-        if metadata is not None:
-            yield fetch_file_info(
-                fname,
-                gather_digests=gather_digests,
-                archived=(False if is_archived is None else is_archived(metadata)),
-                file_group=(
-                    None if calc_file_group is None else calc_file_group(metadata)
-                ),
-                file_type=(
-                    None if calc_file_type is None else calc_file_type(metadata)
-                ),
-                metadata=metadata,
-            )
+    for match_path in match_paths:
+        matcher = Matcher(os.path.join(root_dir, match_path))
+        for fname in iglob(matcher.glob):
+            LOGGER.debug(f"Fetched: {fname}")
+            metadata = matcher.match(fname)
+            if metadata is not None:
+                yield fetch_file_info(
+                    fname,
+                    gather_digests=gather_digests,
+                    archived=(False if is_archived is None else is_archived(metadata)),
+                    file_group=(
+                        None if calc_file_group is None else calc_file_group(metadata)
+                    ),
+                    file_type=file_type,
+                    metadata=metadata,
+                )
 
 
 def fetch_file_info(

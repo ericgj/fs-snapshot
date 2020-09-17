@@ -3,7 +3,7 @@ import os.path
 import os
 import sqlite3
 from time import time, sleep
-from typing import Optional, Iterable, Tuple, List, Dict
+from typing import Optional, Mapping, Sequence, Iterable, Tuple, List, Dict
 
 from hypothesis import given, settings, HealthCheck
 import hypothesis.strategies as hyp
@@ -190,6 +190,11 @@ def test_diff_removed(
     assert_actions(actions, dict([(f.digest, Removed) for f in removed_files]))
 
 
+# ------------------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------------------
+
+
 def assert_actions(actions: Iterable[Action], exp: Dict[Digest, Optional[type]]):
     for action in actions:
         digest = get_original_digest(action)
@@ -225,7 +230,7 @@ def get_original_digest(action: Action) -> Optional[Digest]:
 
 
 def build_config(*, compare_digests: bool) -> Config:
-    empty_match_paths: List[str] = []
+    empty_match_paths: Mapping[str, Sequence[str]] = {}
     empty_metadata: Dict[str, str] = {}
     return Config(
         name="Test",
