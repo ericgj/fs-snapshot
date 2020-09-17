@@ -5,6 +5,75 @@ file-monitoring tool.
 
 --------------------------------------------------------------------------------
 
+_16 Sept 2020_
+
+# Stumbles and enchantments
+
+It took 7 hours to run through the ECG files. There are something like 160,000
+extract files. Not including zip archives. Why did it take this long? 
+Fundamentally the culprit is running the digest on large files 1K at a time.
+I increased the chunk size to 8MB and it does run faster, but still it's
+taking hours and eating CPU cycles. It took 2 hours to run through the AM3
+files, which are fewer than ECG (800) but larger.
+
+(1)
+So, I propose to have an option to disable digests. In fact, I think this 
+should be the default. Digests are good for more accurately determining file
+copies (independent of OS, file system, reported modified date, etc.) but
+since we are mainly concerned with the same files in the same places, have
+they changed, I think using file size and modified time is fine.
+
+(2)
+Secondly -- I think the syntax for deriving file group and file type from
+elements of the path or filename is a bit limiting. It does make sense for
+file group perhaps, since the match paths all 'template' what files are 
+expected under a given file group. But for file type, this might depend on
+any number of things. Only files with a particular extension and in a particular
+folder. Bits of the metadata may not exist for every match path.
+
+So I propose that the 'file type' be a name given to an entire match path.
+You can have several match paths with the same name. Suggested config file
+syntax:
+
+    match_paths =
+        extract              {account}\csv\{protocol}_{extract_type}_*.csv
+        extract/archive      {account}\csv\{archive}\{protocol}_{extract_type}_*.csv
+        extract/archive/zip  {account}\csv\{archive}\*.zip
+        checks               {account}\checks\*.sas7bdat
+        checks/archive       {account}\checks\{archive}\*.sas7bdat
+        interim              {account}\data\*.sas7bdat
+        final                {account}\ToSponsor\*.{sas7bdat,xpt,cpt,csv,txt}
+        final/zip            {account}\ToSponsor\*.zip
+        final/archive        {account}\ToSponsor\{archive}\*.sas7bdat
+        final/archive        {account}\ToSponsor\{archive}\*.xpt
+        final/archive        {account}\ToSponsor\{archive}\*.cpt
+        final/archive        {account}\ToSponsor\{archive}\*.csv
+        final/archive/zip    {account}\ToSponsor\{archive}\*.zip
+        auto/checks          {account}\auto\{timestamp}\checks\*.sas7bdat
+        auto/interim         {account}\auto\{timestamp}\data\*.sas7bdat
+        auto/final           {account}\auto\{timestamp}\ToSponsor\*.{sas7bdat,xpt,cpt,csv,txt}
+        auto/final/zip       {account}\auto\{timestamp}\ToSponsor\*.zip
+
+
+The forward-slash is just a convention, but it is convenient as it means
+you can write queries like `WHERE file_type LIKE 'extract%'` or 
+`LIKE 'extract/archive%'` or `LIKE '%/zip'` 
+
+(Also note we'd need a souped up glob library to handle `.{a,b,c}` (they do 
+exist), and to make sure this doesn't clash with our templating syntax.)
+
+I'm not sure what to say about overlapping extensions of match paths, i.e.
+files being picked up under different match paths. I guess we allow it, but
+it does screw up the totals then since files appear twice.
+
+(3)
+
+I am considering whether to skip sqlite for storage and either publish to
+a pubsub topic or a server database that can handle concurrent writes. Then
+we could reintroduce multithreading.
+
+
+--------------------------------------------------------------------------------
 _13 Sept 2020_
 
 # The more urgent use

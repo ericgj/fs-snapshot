@@ -66,6 +66,7 @@ def store(
     files: Iterator[FileInfo] = filesys.search(
         config.root_dir,
         match_path,
+        gather_digests=config.compare_digests,
         is_archived=config.is_archived,
         calc_file_group=config.file_group_from,
         calc_file_type=config.file_type_from,

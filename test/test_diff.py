@@ -44,6 +44,7 @@ ROOT_DIR = os.path.join("test", "fixtures", "diff")
 
 
 @given(
+    compare_digests=hyp.booleans(),
     pair=list_of_examples(CURRENT_TIME, min_size=15, max_size=15).flatmap(
         with_changes(
             lambda i, f: [
@@ -54,13 +55,15 @@ ROOT_DIR = os.path.join("test", "fixtures", "diff")
                 then_was_renamed(f),
             ][i % 5]
         )
-    )
+    ),
 )
 @settings(deadline=None, suppress_health_check=[HealthCheck.too_slow], max_examples=5)
-def test_diff_changed(pair: Tuple[Iterable[FileInfo], Iterable[FileInfo]]):
+def test_diff_changed(
+    compare_digests: bool, pair: Tuple[Iterable[FileInfo], Iterable[FileInfo]]
+):
     original_files, changed_files = pair
 
-    config = build_config()
+    config = build_config(compare_digests=compare_digests)
     init_logger(level=logging.DEBUG, log_file=config.log_file)
     init_db_logger(
         level=logging.DEBUG,
@@ -89,16 +92,19 @@ def test_diff_changed(pair: Tuple[Iterable[FileInfo], Iterable[FileInfo]]):
 
 
 @given(
+    compare_digests=hyp.booleans(),
     pair=list_of_examples(CURRENT_TIME, min_size=15, max_size=15).flatmap(
         with_copies(lambda i, f: then_was_moved(f) if (i % 3) else hyp.just(None))
-    )
+    ),
 )
 @settings(deadline=None, suppress_health_check=[HealthCheck.too_slow], max_examples=5)
-def test_diff_copied(pair: Tuple[List[FileInfo], List[FileInfo]]):
+def test_diff_copied(
+    compare_digests: bool, pair: Tuple[List[FileInfo], List[FileInfo]]
+):
     original_files, copied_files = pair
     assert len(copied_files) > 0
 
-    config = build_config()
+    config = build_config(compare_digests=compare_digests)
     init_logger(level=logging.DEBUG, log_file=config.log_file)
     init_db_logger(
         level=logging.DEBUG,
@@ -119,17 +125,19 @@ def test_diff_copied(pair: Tuple[List[FileInfo], List[FileInfo]]):
 
 
 @given(
+    compare_digests=hyp.booleans(),
     created_and_original_files=split_list_of_examples(
         CURRENT_TIME, min_size=1, max_size=15
-    )
+    ),
 )
 @settings(deadline=None, suppress_health_check=[HealthCheck.too_slow], max_examples=5)
 def test_diff_created(
-    created_and_original_files: Tuple[List[FileInfo], List[FileInfo]]
+    compare_digests: bool,
+    created_and_original_files: Tuple[List[FileInfo], List[FileInfo]],
 ):
     created_files, original_files = created_and_original_files
 
-    config = build_config()
+    config = build_config(compare_digests=compare_digests)
     init_logger(level=logging.DEBUG, log_file=config.log_file)
     init_db_logger(
         level=logging.DEBUG,
@@ -150,17 +158,19 @@ def test_diff_created(
 
 
 @given(
+    compare_digests=hyp.booleans(),
     removed_and_original_files=split_list_of_examples(
         CURRENT_TIME, min_size=1, max_size=15
-    )
+    ),
 )
 @settings(deadline=None, suppress_health_check=[HealthCheck.too_slow], max_examples=5)
 def test_diff_removed(
-    removed_and_original_files: Tuple[List[FileInfo], List[FileInfo]]
+    compare_digests: bool,
+    removed_and_original_files: Tuple[List[FileInfo], List[FileInfo]],
 ):
     removed_files, original_files = removed_and_original_files
 
-    config = build_config()
+    config = build_config(compare_digests=compare_digests)
     init_logger(level=logging.DEBUG, log_file=config.log_file)
     init_db_logger(
         level=logging.DEBUG,
@@ -214,7 +224,7 @@ def get_original_digest(action: Action) -> Optional[Digest]:
     raise ValueError(f"Unknown action type: {type(action)}")
 
 
-def build_config() -> Config:
+def build_config(*, compare_digests: bool) -> Config:
     empty_match_paths: List[str] = []
     empty_metadata: Dict[str, str] = {}
     return Config(
@@ -225,6 +235,7 @@ def build_config() -> Config:
         store_db_file=os.path.join(ROOT_DIR, "output", "fs-snapshot.sqlite"),
         store_db_import_table="__import__",
         store_db_file_info_table="file_info",
+        compare_digests=compare_digests,
         metadata=empty_metadata,
         archived_by=NotArchived(),
     )

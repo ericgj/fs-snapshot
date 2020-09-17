@@ -62,7 +62,7 @@ class Store:
 
     @db.log_errors
     def fetch_file_import_compare_latest(
-        self, conn: sqlite3.Connection, id: bytes,
+        self, conn: sqlite3.Connection, id: bytes, compare_digests: bool = False,
     ) -> Tuple[bytes, List[file_info.CompareStates]]:
         latest_id = self.fetch_latest_import_id(conn, id)
         if latest_id is None:
@@ -70,7 +70,9 @@ class Store:
         if latest_id == id:
             raise StoreFileImportCompareNoChanges(id)
 
-        rows = self.select_file_import_compare(conn, id, latest_id)
+        rows = self.select_file_import_compare(
+            conn, prev_id=id, next_id=latest_id, compare_digests=compare_digests
+        )
         return (latest_id, [deserialized_file_info_compare(row) for row in rows])
 
     def fetch_file_import(self, conn: sqlite3.Connection, id: bytes) -> FileImport:
@@ -154,10 +156,18 @@ class Store:
             return None
 
     def select_file_import_compare(
-        self, conn: sqlite3.Connection, prev_id: bytes, next_id: bytes
+        self,
+        conn: sqlite3.Connection,
+        *,
+        prev_id: bytes,
+        next_id: bytes,
+        compare_digests: bool,
     ) -> List[sqlite3.Row]:
         sql, params = sql_select_file_import_compare(
-            self.file_info_table, prev_id, next_id
+            self.file_info_table,
+            prev_id=prev_id,
+            next_id=next_id,
+            compare_digests=compare_digests,
         )
         return db.select(conn, sql, params)
 
@@ -356,11 +366,37 @@ LIMIT 1
 
 
 def sql_select_file_import_compare(
-    file_info_table: str, prev_id: bytes, next_id: bytes
+    file_info_table: str, *, prev_id: bytes, next_id: bytes, compare_digests: bool,
 ):
     file_info_table_literal = db.name_literal(file_info_table)
+
+    contents_match_expr = (
+        "prev.`digest` = next.`digest`"
+        if compare_digests
+        else "prev.`size` = next.`size` AND prev.`modified` = next.`modified`"
+    )
+    contents_full_match_expr = (
+        "prev.`digest` = full_matches.`digest`"
+        if compare_digests
+        else "prev.`size` = full_matches.`size` AND prev.`modified` = full_matches.`modified`"
+    )
+    contents_full_match_not_in_expr = (
+        "full_matches.`digest` IS NULL"
+        if compare_digests
+        else "full_matches.`size` IS NULL AND full_matches.`modified` IS NULL"
+    )
+
     return (
         f"""
+WITH `full_matches` (`digest`, `size`, `modified`) AS (
+    SELECT prev.`digest`, prev.`size`, prev.`modified`
+    FROM {file_info_table_literal} AS prev
+        INNER JOIN {file_info_table_literal} AS next
+            ON ({contents_match_expr}) 
+            AND (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
+    WHERE prev.`import_id` = ?
+    AND next.`import_id` = ?
+)
     /* IN PREV ONLY */
 SELECT prev.`digest` AS `digest_prev`
      , prev.`dir_name` AS `dir_name_prev`
@@ -387,9 +423,9 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS prev 
     LEFT JOIN {file_info_table_literal} AS next
-        ON prev.`digest` = next.`digest` 
+        ON ({contents_match_expr}) 
         OR (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
-WHERE next.`digest` IS NULL
+WHERE next.`dir_name` IS NULL
   AND prev.`import_id` = ? 
   AND next.`import_id` = ?
 
@@ -420,19 +456,13 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS prev 
     INNER JOIN {file_info_table_literal} AS next
-        ON prev.`digest` = next.`digest` 
+        ON ({contents_match_expr}) 
         AND NOT (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
+    LEFT OUTER JOIN `full_matches` 
+        ON {contents_full_match_expr}
 WHERE prev.`import_id` = ? 
   AND next.`import_id` = ?
-  AND prev.`digest` NOT IN (
-      SELECT a.`digest` 
-      FROM {file_info_table_literal} AS a
-          INNER JOIN {file_info_table_literal} AS b
-              ON a.`digest` = b.`digest` 
-              AND (a.`dir_name` = b.`dir_name` AND a.`base_name` = b.`base_name`)
-      WHERE a.`import_id` = ?
-      AND b.`import_id` = ?
-  )
+  AND ({contents_full_match_not_in_expr})
 
 UNION
     /* IN BOTH, COPIED */
@@ -461,19 +491,12 @@ SELECT prev.`digest` AS `digest_prev`
      , 1 AS __copied__
 FROM {file_info_table_literal} AS prev 
     INNER JOIN {file_info_table_literal} AS next
-        ON prev.`digest` = next.`digest` 
+        ON ({contents_match_expr}) 
         AND NOT (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
+    INNER JOIN `full_matches` 
+        ON {contents_full_match_expr}
 WHERE prev.`import_id` = ? 
   AND next.`import_id` = ?
-  AND prev.`digest` IN (
-      SELECT a.`digest` 
-      FROM {file_info_table_literal} AS a
-          INNER JOIN {file_info_table_literal} AS b
-              ON a.`digest` = b.`digest` 
-              AND (a.`dir_name` = b.`dir_name` AND a.`base_name` = b.`base_name`)
-      WHERE a.`import_id` = ?
-      AND b.`import_id` = ?
-  )
 
 UNION
     /* IN BOTH, MODIFIED */
@@ -503,7 +526,7 @@ SELECT prev.`digest` AS `digest_prev`
 FROM {file_info_table_literal} AS prev 
     INNER JOIN {file_info_table_literal} AS next
         ON (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`) 
-        AND NOT prev.`digest` = next.`digest`
+        AND NOT ({contents_match_expr}) 
 WHERE prev.`import_id` = ? 
   AND next.`import_id` = ?
 
@@ -534,7 +557,7 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS prev 
     INNER JOIN {file_info_table_literal} AS next
-        ON prev.`digest` = next.`digest` 
+        ON ({contents_match_expr}) 
         AND (prev.`dir_name` = next.`dir_name` AND prev.`base_name` = next.`base_name`)
 WHERE prev.`import_id` = ? 
   AND next.`import_id` = ?
@@ -566,16 +589,14 @@ SELECT prev.`digest` AS `digest_prev`
      , 0 AS __copied__
 FROM {file_info_table_literal} AS next 
     LEFT JOIN {file_info_table_literal} AS prev
-        ON next.`digest` = prev.`digest` 
+        ON ({contents_match_expr}) 
         OR (next.`dir_name` = prev.`dir_name` AND next.`base_name` = prev.`base_name`)
-WHERE prev.`digest` IS NULL
+WHERE prev.`dir_name` IS NULL
   AND prev.`import_id` = ?
   AND next.`import_id` = ?
 ;
         """,
         (
-            prev_id,
-            next_id,
             prev_id,
             next_id,
             prev_id,

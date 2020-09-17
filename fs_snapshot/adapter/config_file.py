@@ -41,6 +41,7 @@ def parse_section(name: str, section: Dict[str, str]) -> Config:
             "store_db_file_info_table",
             parse_string(section.get("store_db_file_info_table", "")),
         ),
+        ("compare_digests", parse_bool(section.get("compare_digests", ""))),
         ("metadata", parse_string_dict(section.get("metadata", ""))),
         ("archived_by", parse_archived_by(section.get("archived_by", ""))),
         ("file_group_by", parse_calc(section.get("file_group_by", ""))),
@@ -53,6 +54,13 @@ def parse_string(s: str) -> Optional[str]:
     if len(s) == 0:
         return None
     return s.strip()
+
+
+def parse_bool(s: str) -> Optional[bool]:
+    ss = parse_string(s)
+    if ss is None:
+        return None
+    return ss.lower() in ["y", "yes", "t", "true", "1"]
 
 
 def parse_string_list(s: str) -> Optional[List[str]]:

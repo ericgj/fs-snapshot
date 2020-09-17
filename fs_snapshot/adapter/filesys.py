@@ -19,6 +19,7 @@ LOGGER = get_logger(__name__)
 def search(
     root_dir: str,
     match_path: str,
+    gather_digests: bool = False,
     is_archived: Optional[Callable[[Dict[str, str]], bool]] = None,
     calc_file_group: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
     calc_file_type: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
@@ -30,6 +31,7 @@ def search(
         if metadata is not None:
             yield fetch_file_info(
                 fname,
+                gather_digests=gather_digests,
                 archived=(False if is_archived is None else is_archived(metadata)),
                 file_group=(
                     None if calc_file_group is None else calc_file_group(metadata)
@@ -43,20 +45,25 @@ def search(
 
 def fetch_file_info(
     fname: str,
+    gather_digests: bool = False,
     archived: bool = False,
     file_group: Optional[str] = None,
     file_type: Optional[str] = None,
     metadata: Dict[str, str] = {},
 ) -> FileInfo:
+    """ Note: at most 8MB per chunk ~= 100 iterations/GB """
     fstat = os.stat(fname)
     size = int(fstat.st_size)
-    LOGGER.debug(f"Digest started: {fname}")
-    fdigest = digest(fname, size)
-    LOGGER.debug(f"Digest ended: {fname}")
+    fdigest: Digest = b""
+    if gather_digests:
+        LOGGER.debug(f"Digest started: {fname}")
+        fdigest = digest(fname, min(size, 2 ** 23))
+        LOGGER.debug(f"Digest ended: {fname}")
+
     return FileInfo(
         created=float(fstat.st_ctime),
         modified=float(fstat.st_mtime),
-        size=int(fstat.st_size),
+        size=size,
         dir_name=os.path.dirname(fname),
         base_name=os.path.basename(fname),
         digest=fdigest,
@@ -67,9 +74,8 @@ def fetch_file_info(
     )
 
 
-def digest(fname: str, size: int) -> Digest:
+def digest(fname: str, chunk_size: int) -> Digest:
     h = hashlib.md5()
-    chunk_size = min(size, 2 ** 23)  # at most 8MB per chunk ~= 100 iterations/GB
     with open(fname, "rb") as f:
         for chunk in iter(lambda: f.read(chunk_size), b""):
             h.update(chunk)
