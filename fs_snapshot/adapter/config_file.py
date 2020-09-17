@@ -93,6 +93,7 @@ def parse_string_dict(s: str) -> Optional[Dict[str, str]]:
 
 def parse_match_paths(s: str) -> Dict[str, List[str]]:
     def _parse(match_paths, line):
+        line = line.encode("unicode-escape").decode()
         tokens = shlex.split(line)
         if len(tokens) < 2:
             raise ValueError(f"Cannot parse as match path: '{line}'")
@@ -141,6 +142,7 @@ def parse_calc(s: str) -> Optional[CalcBy]:
     line = parse_string(s)
     if line is None:
         return None
+    line = line.encode("unicode-escape").decode()
     parts = shlex.split(line)
     if parts[0] == "from-metadata":
         return parse_calc_from_metadata(parts[1:])
