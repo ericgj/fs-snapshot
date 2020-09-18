@@ -13,3 +13,8 @@ def connect_store_db(config: Config):
         logger=logger,
     )
     return (conn, store_db)
+
+
+def connect(config: Config):
+    logger = logging.get_db_logger(config.store_db_log_name)
+    return db.connect(config.store_db_file, logger)

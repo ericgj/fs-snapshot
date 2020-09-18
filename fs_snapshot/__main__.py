@@ -1,4 +1,4 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, FileType
 from binascii import unhexlify
 import logging
 import sys
@@ -6,6 +6,7 @@ import sys
 from .command import config as command_config
 from .command import store as command_store
 from .command import diff as command_diff
+from .command import query as command_query
 from .adapter import config_file
 from .adapter.logging import init_logger, init_db_logger
 from .model.config import Config
@@ -14,9 +15,11 @@ from .model.config import Config
 def main():
     program = ArgumentParser(description="Snapshot and diff file system info")
     common = ArgumentParser(add_help=False)
-    common.add_argument("spec", help="Spec name")
     common.add_argument(
         "-c", "--config", help="Config file", type=str, default="fs-snapshot.ini"
+    )
+    common.add_argument(
+        "--spec", help="Spec (config file section)", default="fs-snapshot"
     )
     common.add_argument(
         "--debug", help="Debug messages to log", action="store_true",
@@ -26,6 +29,7 @@ def main():
     config_parser(sub, [common])
     store_parser(sub, [common])
     diff_parser(sub, [common])
+    query_parser(sub, [common])
 
     args = program.parse_args()
 
@@ -79,9 +83,44 @@ def store_parser(root, parents):
 def diff_parser(root, parents):
     cmd = root.add_parser("diff", description="Diff two snapshots", parents=parents)
     cmd.add_argument(
-        "import_id", type=unhexlify, help="ID of the earlier snapshot (hex)"
+        "snapshot", type=unhexlify, help="ID of the earlier snapshot (hex)"
     )
     cmd.set_defaults(func=exec_diff)
+    return cmd
+
+
+def query_parser(root, parents):
+    cmd = root.add_parser("query", description="Query file info", parents=parents)
+    cmd.add_argument(
+        "--snapshot",
+        type=unhexlify,
+        help="ID of snapshot (hex); or latest if not specified",
+    )
+    cmd.add_argument(
+        "-q",
+        "--query-file",
+        "--query-files",
+        nargs="*",
+        type=FileType("r"),
+        default=[sys.stdin],
+        help="Query file(s)",
+    )
+    cmd.add_argument(
+        "-o",
+        "--output-file",
+        nargs="?",
+        type=FileType("w"),
+        default=sys.stdout,
+        help="Output file",
+    )
+    cmd.add_argument(
+        "-f",
+        "--format",
+        default="json",
+        choices=command_query.FORMATS,
+        help="Output format",
+    )
+    cmd.set_defaults(func=exec_query)
     return cmd
 
 
@@ -94,7 +133,17 @@ def exec_store(config: Config, args):
 
 
 def exec_diff(config: Config, args):
-    command_diff.main(config, args.import_id)
+    command_diff.main(config, args.snapshot)
+
+
+def exec_query(config: Config, args):
+    command_query.main(
+        config,
+        [] if args.query_file is None else args.query_file,
+        args.output_file,
+        snapshot=args.snapshot,
+        format=args.format,
+    )
 
 
 def get_config(args) -> Config:
@@ -105,7 +154,7 @@ def get_config_spec(file_name: str, spec: str) -> Config:
     configs = config_file.parse_file(file_name)
     if spec not in configs:
         raise ValueError(
-            f"No spec found named '{spec}'. Check your spelling and config file."
+            f"No section found named '{spec}'. Check your spelling and config file."
         )
     return configs[spec]
 

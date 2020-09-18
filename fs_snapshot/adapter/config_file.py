@@ -24,7 +24,10 @@ def parse_file(file_name: str) -> Dict[str, Config]:
 
 
 def parse_sections(p: ConfigParser) -> Dict[str, Config]:
-    return dict([(name, parse_section(name, dict(p[name]))) for name in p.sections()])
+    return dict(
+        [("fs-snapshot", parse_section("fs-snapshot", dict(p["fs-snapshot"])))]
+        + [(name, parse_section(name, dict(p[name]))) for name in p.sections()]
+    )
 
 
 def parse_section(name: str, section: Dict[str, str]) -> Config:
