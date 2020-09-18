@@ -151,7 +151,7 @@ def exec_query(config: Config, args):
 def read_glob(file_name: str) -> Generator[str, None, None]:
     for fname in iglob(file_name):
         data = ""
-        with open(file_name, "r") as f:
+        with open(fname, "r") as f:
             data = f.read()
         yield data
 
