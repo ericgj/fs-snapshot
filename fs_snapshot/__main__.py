@@ -1,7 +1,10 @@
 from argparse import ArgumentParser, FileType
 from binascii import unhexlify
+from glob import iglob
+from itertools import chain
 import logging
 import sys
+from typing import Iterable, Generator
 
 from .command import config as command_config
 from .command import store as command_store
@@ -97,13 +100,7 @@ def query_parser(root, parents):
         help="ID of snapshot (hex); or latest if not specified",
     )
     cmd.add_argument(
-        "-q",
-        "--query-file",
-        "--query-files",
-        nargs="*",
-        type=FileType("r"),
-        default=[sys.stdin],
-        help="Query file(s)",
+        "-q", "--query-file", "--query-files", nargs="*", help="Query file(s)"
     )
     cmd.add_argument(
         "-o",
@@ -137,13 +134,26 @@ def exec_diff(config: Config, args):
 
 
 def exec_query(config: Config, args):
+    queries: Iterable[str] = []
+    if args.query_file is None:
+        inp = sys.stdin.read().strip()
+        queries = [inp]
+    else:
+        # Note: this is needed in order to expand file globs in Windows, since
+        # the Windows shell does not expand file globs automatically.
+        queries = chain.from_iterable(read_glob(fname) for fname in args.query_file)
+
     command_query.main(
-        config,
-        [] if args.query_file is None else args.query_file,
-        args.output_file,
-        snapshot=args.snapshot,
-        format=args.format,
+        config, queries, args.output_file, snapshot=args.snapshot, format=args.format,
     )
+
+
+def read_glob(file_name: str) -> Generator[str, None, None]:
+    for fname in iglob(file_name):
+        data = ""
+        with open(file_name, "r") as f:
+            data = f.read()
+        yield data
 
 
 def get_config(args) -> Config:

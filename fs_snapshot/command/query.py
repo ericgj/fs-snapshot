@@ -15,7 +15,7 @@ COMMENT_REGEX = re.compile(r"\s*\/\*\s*([^*]+)\s*\*\/")
 
 def main(
     config: Config,
-    input_files: Iterable[TextIO],
+    queries: Iterable[str],
     output_file: TextIO,
     *,
     snapshot: Optional[bytes] = None,
@@ -24,8 +24,7 @@ def main(
     conn = connect(config)
     conn.execute("PRAGMA query_only;")  # force db into read only state
 
-    for input_file in input_files:
-        sql = input_file.read().strip()
+    for sql in queries:
         title = parse_title_comment(sql)
         rows = select(conn, sql, snapshot=snapshot)
         print(serialize(rows, title=title, format=format), file=output_file)
