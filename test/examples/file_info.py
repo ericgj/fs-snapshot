@@ -9,10 +9,16 @@ from fs_snapshot.model.file_info import FileInfo, Digest
 
 
 def list_of_examples(
-    current_time: float, *, min_size: int = 1, max_size: int = None,
+    current_time: float,
+    *,
+    min_size: int = 1,
+    max_size: Optional[int] = None,
 ) -> hyp.SearchStrategy:
     return hyp.lists(
-        hyp.tuples(digests(), file_names(),),
+        hyp.tuples(
+            digests(),
+            file_names(),
+        ),
         unique=True,
         min_size=min_size,
         max_size=max_size,
@@ -20,7 +26,11 @@ def list_of_examples(
         lambda pairs: (
             hyp.tuples(
                 *[
-                    examples(current_time, digest=digest, file_name=file_name,)
+                    examples(
+                        current_time,
+                        digest=digest,
+                        file_name=file_name,
+                    )
                     for (digest, file_name) in pairs
                 ]
             ).map(list)
@@ -29,7 +39,10 @@ def list_of_examples(
 
 
 def split_list_of_examples(
-    current_time: float, *, min_size: int = 1, max_size: int = None,
+    current_time: float,
+    *,
+    min_size: int = 1,
+    max_size: Optional[int] = None,
 ) -> hyp.SearchStrategy:
     return (
         hyp.integers(min_value=min_size, max_value=max_size)
@@ -72,7 +85,7 @@ def examples(
         ),
         created=times_near(current_time, before=timedelta(weeks=2)),
         modified=times_near(current_time, before=timedelta(weeks=1)),
-        size=hyp.integers(min_value=1, max_value=(2 ** 16)),
+        size=hyp.integers(min_value=1, max_value=(2**16)),
         archived=hyp.booleans() if archived is None else hyp.just(archived),
         metadata=(
             sample_metadata(["client", "protocol", "account"])
@@ -91,7 +104,9 @@ def examples(
 def with_changes(
     fn: Callable[[int, FileInfo], hyp.SearchStrategy]
 ) -> Callable[[Iterable[FileInfo]], hyp.SearchStrategy]:
-    def _with_changes(original_files: Iterable[FileInfo],) -> hyp.SearchStrategy:
+    def _with_changes(
+        original_files: Iterable[FileInfo],
+    ) -> hyp.SearchStrategy:
         return hyp.tuples(
             hyp.just(original_files),
             hyp.tuples(*[fn(i, f) for (i, f) in enumerate(original_files)]).map(list),
@@ -103,7 +118,9 @@ def with_changes(
 def with_copies(
     fn: Callable[[int, FileInfo], hyp.SearchStrategy]
 ) -> Callable[[Iterable[FileInfo]], hyp.SearchStrategy]:
-    def _with_copies(original_files: Iterable[FileInfo],) -> hyp.SearchStrategy:
+    def _with_copies(
+        original_files: Iterable[FileInfo],
+    ) -> hyp.SearchStrategy:
         return hyp.tuples(
             hyp.just(original_files),
             hyp.tuples(*[fn(i, f) for (i, f) in enumerate(original_files)]).map(list),
@@ -112,36 +129,59 @@ def with_copies(
     return _with_copies
 
 
-def then_was_moved(original: FileInfo,) -> hyp.SearchStrategy:
-    return hyp.tuples(
-        dir_names(max_depth=10).filter(lambda s: s != original.dir_name),
-        sample_metadata(["client", "protocol", "account"]),
-    ).map(lambda pair: replace(original, dir_name=pair[0], metadata=pair[1],))
-
-
-def then_was_renamed(original: FileInfo,) -> hyp.SearchStrategy:
-    return hyp.tuples(
-        file_base_names().filter(lambda s: s != original.base_name),
-        sample_metadata(["client", "protocol", "account"]),
-    ).map(lambda pair: replace(original, base_name=pair[0], metadata=pair[1],))
-
-
-def then_was_archived(original: FileInfo,) -> hyp.SearchStrategy:
+def then_was_moved(
+    original: FileInfo,
+) -> hyp.SearchStrategy:
     return hyp.tuples(
         dir_names(max_depth=10).filter(lambda s: s != original.dir_name),
         sample_metadata(["client", "protocol", "account"]),
     ).map(
         lambda pair: replace(
-            original, dir_name=pair[0], metadata=pair[1], archived=True,
+            original,
+            dir_name=pair[0],
+            metadata=pair[1],
         )
     )
 
 
-def then_was_modified(original: FileInfo,) -> hyp.SearchStrategy:
+def then_was_renamed(
+    original: FileInfo,
+) -> hyp.SearchStrategy:
+    return hyp.tuples(
+        file_base_names().filter(lambda s: s != original.base_name),
+        sample_metadata(["client", "protocol", "account"]),
+    ).map(
+        lambda pair: replace(
+            original,
+            base_name=pair[0],
+            metadata=pair[1],
+        )
+    )
+
+
+def then_was_archived(
+    original: FileInfo,
+) -> hyp.SearchStrategy:
+    return hyp.tuples(
+        dir_names(max_depth=10).filter(lambda s: s != original.dir_name),
+        sample_metadata(["client", "protocol", "account"]),
+    ).map(
+        lambda pair: replace(
+            original,
+            dir_name=pair[0],
+            metadata=pair[1],
+            archived=True,
+        )
+    )
+
+
+def then_was_modified(
+    original: FileInfo,
+) -> hyp.SearchStrategy:
     return hyp.tuples(
         digests().filter(lambda b: b != original.digest),
         hyp.timedeltas().filter(lambda td: td.total_seconds() > 0),
-        hyp.integers(min_value=1, max_value=(2 ** 16)),
+        hyp.integers(min_value=1, max_value=(2**16)),
     ).map(
         lambda state: replace(
             original,
@@ -156,13 +196,21 @@ def digests() -> hyp.SearchStrategy:
     return hyp.binary(min_size=16, max_size=16)
 
 
-def dir_names(*, min_depth: int = 0, max_depth: int = 5,) -> hyp.SearchStrategy:
+def dir_names(
+    *,
+    min_depth: int = 0,
+    max_depth: int = 5,
+) -> hyp.SearchStrategy:
     return hyp.lists(file_path_segments(), min_size=min_depth, max_size=max_depth).map(
         lambda path_segments: os.sep.join(path_segments)
     )
 
 
-def file_names(*, min_depth: int = 0, max_depth: int = 5,) -> hyp.SearchStrategy:
+def file_names(
+    *,
+    min_depth: int = 0,
+    max_depth: int = 5,
+) -> hyp.SearchStrategy:
     return hyp.lists(
         file_path_segments(), min_size=min_depth, max_size=max_depth
     ).flatmap(
@@ -199,7 +247,9 @@ def strings(*, min_size: int = 1, max_size: Optional[int] = None) -> hyp.SearchS
     return hyp.text(
         min_size=min_size,
         max_size=max_size,
-        alphabet=hyp.characters(whitelist_categories=["Lu", "Ll", "Nd", "P"],),
+        alphabet=hyp.characters(
+            whitelist_categories=["Lu", "Ll", "Nd", "P"],
+        ),
     )
 
 
@@ -210,11 +260,14 @@ def times_near(
     after: timedelta = timedelta(minutes=0),
 ) -> hyp.SearchStrategy:
     return hyp.floats(
-        min_value=t - before.total_seconds(), max_value=t + after.total_seconds(),
+        min_value=t - before.total_seconds(),
+        max_value=t + after.total_seconds(),
     )
 
 
-def sample_metadata(fields: Iterable[str],) -> hyp.SearchStrategy:
+def sample_metadata(
+    fields: Iterable[str],
+) -> hyp.SearchStrategy:
     return hyp.fixed_dictionaries(dict((field, metadata_values()) for field in fields))
 
 
