@@ -31,7 +31,7 @@ def test_store_single_match_path_with_compare_digests():
         ]
     }
     config = build_config(
-        name="ECG Extracts",
+        name="store_single_match_path_with_compare_digests",
         root_dir=root_dir,
         match_paths=match_paths,
         compare_digests=True,
@@ -49,10 +49,22 @@ def test_store_single_match_path_with_compare_digests():
     remove_db_files(config)
     store.main(config)
 
-    assert_import_created_with_name_and_tags(config, "ECG Extracts", "Extract", "ECG")
+    assert_import_created_with_name_and_tags(
+        config, "store_single_match_path_with_compare_digests", "Extract", "ECG"
+    )
 
-    exp = len([f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))])
-    assert_n_files_stored(config, exp)
+    exp_all = len(
+        [
+            f
+            for f in glob(os.path.join(root_dir, "**"), recursive=True)
+            if os.path.isfile(f)
+        ]
+    )
+    exp_tagged = len(
+        [f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))]
+    )
+    assert_n_files_stored_with_tags(config, exp_tagged)
+    assert_n_files_stored_without_tags(config, exp_all - exp_tagged)
 
 
 def test_store_multiple_match_paths_with_archive_no_compare_digests():
@@ -72,7 +84,7 @@ def test_store_multiple_match_paths_with_archive_no_compare_digests():
         ]
     }
     config = build_config(
-        name="ECG Extracts",
+        name="store_multiple_match_paths_with_archive_no_compare_digests",
         root_dir=root_dir,
         match_paths=match_paths,
         compare_digests=False,
@@ -90,15 +102,32 @@ def test_store_multiple_match_paths_with_archive_no_compare_digests():
     remove_db_files(config)
     store.main(config)
 
-    assert_import_created_with_name_and_tags(config, "ECG Extracts", "Extract", "ECG")
+    assert_import_created_with_name_and_tags(
+        config,
+        "store_multiple_match_paths_with_archive_no_compare_digests",
+        "Extract",
+        "ECG",
+    )
 
+    exp_all = [
+        f
+        for f in glob(os.path.join(root_dir, "**"), recursive=True)
+        if os.path.isfile(f)
+    ]
     exp_normal = [f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))]
     exp_archived = [
         f for f in glob(os.path.join(root_dir, "*", "*", "csv", "*", "*.CSV"))
     ]
-    assert_n_files_stored(config, len(exp_normal) + len(exp_archived))
+    assert_n_files_stored_without_tags(
+        config, len(exp_all) - (len(exp_normal) + len(exp_archived))
+    )
+    assert_n_files_stored_with_tags(config, len(exp_normal) + len(exp_archived))
 
-    assert_imported_files(config, exp_normal, archived=False)
+    # Note: fragile; assumes unmatched file has a different extension than .CSV in fixture
+    exp_not_archived = exp_normal + [
+        f for f in exp_all if not os.path.splitext(f)[1] == ".CSV"
+    ]
+    assert_imported_files(config, exp_not_archived, archived=False)
     assert_imported_files(config, exp_archived, archived=True)
 
 
@@ -112,7 +141,7 @@ def test_store_with_calc():
         ]
     }
     config = build_config(
-        name="ECG Extracts",
+        name="store_with_calc",
         root_dir=root_dir,
         match_paths=match_paths,
         compare_digests=False,
@@ -130,14 +159,19 @@ def test_store_with_calc():
     remove_db_files(config)
     store.main(config)
 
-    assert_import_created_with_name_and_tags(config, "ECG Extracts", "Extract", "ECG")
+    assert_import_created_with_name_and_tags(
+        config, "store_with_calc", "Extract", "ECG"
+    )
 
     """ 
     Note: this is quite fragile. Depends on the protocol part of the file name
     being exactly 9 characters long for each fixture file.
     """
     exps = [
-        (f, f"{f.split(os.sep)[7][:9]} // {f.split(os.sep)[5]}",)
+        (
+            f,
+            f"{f.split(os.sep)[7][:9]} // {f.split(os.sep)[5]}",
+        )
         for f in glob(os.path.join(root_dir, "*", "*", "csv", "*.CSV"))
     ]
 
@@ -173,6 +207,26 @@ def assert_n_files_stored(config: Config, exp: int):
     assert exp == act, f"Expected {exp}, was {act}"
 
 
+def assert_n_files_stored_with_tags(config: Config, exp: int):
+    conn = sqlite3.connect(config.store_db_file)
+    c = conn.execute("SELECT COUNT(*) FROM `file_info` WHERE LENGTH(`tags`) > 0;")
+    row = c.fetchone()
+    if row is None:
+        assert False, "DB error: unable to select"
+    act = int(row[0])
+    assert exp == act, f"Expected {exp}, was {act}"
+
+
+def assert_n_files_stored_without_tags(config: Config, exp: int):
+    conn = sqlite3.connect(config.store_db_file)
+    c = conn.execute("SELECT COUNT(*) FROM `file_info` WHERE LENGTH(`tags`) = 0;")
+    row = c.fetchone()
+    if row is None:
+        assert False, "DB error: unable to select"
+    act = int(row[0])
+    assert exp == act, f"Expected {exp}, was {act}"
+
+
 def assert_files_stored_with_group(config: Config, exps: Iterable[Tuple[str, str]]):
     conn = sqlite3.connect(config.store_db_file)
     c = conn.execute("SELECT `dir_name`, `base_name`, `file_group` FROM `file_info`;")
@@ -180,7 +234,7 @@ def assert_files_stored_with_group(config: Config, exps: Iterable[Tuple[str, str
     if rows is None:
         assert False, "DB error: unable to select"
     row_lookup = dict([(os.path.join(str(r[0]), str(r[1])), r) for r in rows])
-    for (exp_name, exp_group) in exps:
+    for exp_name, exp_group in exps:
         assert exp_name in row_lookup, f"Expected file stored: {exp_name}"
         row = row_lookup[exp_name]
         act_group = str(row[2])
@@ -223,8 +277,8 @@ def build_config(
         name=name,
         match_paths=match_paths,
         root_dir=root_dir,
-        log_file=os.path.join(ROOT_DIR, "output", "fs-snapshot.log"),
-        store_db_file=os.path.join(ROOT_DIR, "output", "fs-snapshot.sqlite"),
+        log_file=os.path.join(ROOT_DIR, "output", f"{name}.log"),
+        store_db_file=os.path.join(ROOT_DIR, "output", f"{name}.sqlite"),
         store_db_import_table="__import__",
         store_db_file_info_table="file_info",
         compare_digests=compare_digests,

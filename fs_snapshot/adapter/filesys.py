@@ -24,22 +24,37 @@ def search(
     is_archived: Optional[Callable[[Dict[str, str]], bool]] = None,
     calc_file_group: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
 ) -> Generator[FileInfo, None, None]:
-    for match_path in match_paths:
-        matcher = Matcher(os.path.join(root_dir, match_path))
-        for fname in iglob(matcher.glob):
-            LOGGER.debug(f"Fetched: {fname}")
-            metadata = matcher.match(fname)
-            if metadata is not None:
-                yield fetch_file_info(
-                    fname,
-                    gather_digests=gather_digests,
-                    archived=(False if is_archived is None else is_archived(metadata)),
-                    file_group=(
-                        None if calc_file_group is None else calc_file_group(metadata)
-                    ),
-                    file_type=file_type,
-                    metadata=metadata,
-                )
+    matchers = [
+        Matcher(os.path.join(root_dir, match_path)) for match_path in match_paths
+    ]
+    for fname in iglob(os.path.join(root_dir, "**"), recursive=True):
+        if not os.path.isfile(fname):
+            continue
+        try:
+            metadata = next(
+                m for matcher in matchers if (m := matcher.match(fname)) is not None
+            )
+            LOGGER.debug(f"Matched file: {fname}")
+            yield fetch_file_info(
+                fname,
+                gather_digests=gather_digests,
+                archived=(False if is_archived is None else is_archived(metadata)),
+                file_group=(
+                    None if calc_file_group is None else calc_file_group(metadata)
+                ),
+                file_type=file_type,
+                metadata=metadata,
+            )
+        except StopIteration:
+            LOGGER.debug(f"Unmatched file: {fname}")
+            yield fetch_file_info(
+                fname,
+                gather_digests=False,
+                archived=False,
+                file_group=None,
+                file_type=file_type,
+                metadata={},
+            )
 
 
 def fetch_file_info(
@@ -50,13 +65,13 @@ def fetch_file_info(
     file_type: Optional[str] = None,
     metadata: Dict[str, str] = {},
 ) -> FileInfo:
-    """ Note: at most 8MB per chunk ~= 100 iterations/GB """
+    """Note: at most 8MB per chunk ~= 100 iterations/GB"""
     fstat = os.stat(fname)
     size = int(fstat.st_size)
     fdigest: Digest = b""
     if gather_digests:
         LOGGER.debug(f"Digest started: {fname}")
-        fdigest = digest(fname, min(size, 2 ** 23))
+        fdigest = digest(fname, min(size, 2**23))
         LOGGER.debug(f"Digest ended: {fname}")
 
     return FileInfo(
@@ -119,4 +134,7 @@ def compiled_match_expr(expr: str) -> re.Pattern:
     parsed_expr = re.escape(os.sep).join(
         [_parse_segment(segment) for segment in segments]
     )
-    return re.compile(parsed_expr, flags=re.A + re.I,)
+    return re.compile(
+        parsed_expr,
+        flags=re.A + re.I,
+    )
