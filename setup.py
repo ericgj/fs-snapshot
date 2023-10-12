@@ -4,7 +4,7 @@ tests_require = ["pytest", "pytest-random-order", "hypothesis"]
 
 setup(
     name="fs-snapshot",
-    version="0.2",
+    version="0.3",
     description="A file system snapshot + diff tool and library",
     license="MIT",
     author="Eric Gjertsen",
