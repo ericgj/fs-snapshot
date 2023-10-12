@@ -4,7 +4,7 @@ import os
 import os.path
 from glob import iglob
 import re
-from typing import Optional, Sequence, Dict, Callable, Generator
+from typing import Optional, Sequence, Mapping, Tuple, Dict, Callable, Generator
 
 from ..model.file_info import FileInfo, Digest
 from ..util import re_
@@ -16,25 +16,49 @@ REGEXP_VAR_OR_GLOB = re.compile("(\\{[a-zA-Z0-9_]+\\}|\\*\\*|\\*)", flags=re.I +
 LOGGER = get_logger(__name__)
 
 
+class Matcher:
+    def __init__(self, expr: str):
+        self._expr = compiled_match_expr(expr)
+        self.glob = REGEXP_VAR.sub("*", expr)
+
+    def match(self, dir: str) -> Optional[Dict[str, str]]:
+        matches = re.match(self._expr, dir)
+        if matches is None:
+            return None
+        return matches.groupdict()
+
+
 def search(
     root_dir: str,
-    match_paths: Sequence[str],
-    file_type: Optional[str] = None,
+    match_paths: Mapping[str, Sequence[str]],
     gather_digests: bool = False,
     is_archived: Optional[Callable[[Dict[str, str]], bool]] = None,
     calc_file_group: Optional[Callable[[Dict[str, str]], Optional[str]]] = None,
 ) -> Generator[FileInfo, None, None]:
-    matchers = [
-        Matcher(os.path.join(root_dir, match_path)) for match_path in match_paths
-    ]
+    matchers = {
+        file_type: [
+            Matcher(os.path.join(root_dir, match_path))
+            for match_path in match_paths[file_type]
+        ]
+        for file_type in match_paths
+    }
     for fname in iglob(os.path.join(root_dir, "**"), recursive=True):
         if not os.path.isfile(fname):
             continue
-        try:
-            metadata = next(
-                m for matcher in matchers if (m := matcher.match(fname)) is not None
+        pair = match_file_type_and_metadata(fname, matchers)
+        if pair is None:
+            LOGGER.debug(f"Unmatched file: {fname}")
+            yield fetch_file_info(
+                fname,
+                gather_digests=False,
+                archived=False,
+                file_group=None,
+                file_type=None,
+                metadata={},
             )
-            LOGGER.debug(f"Matched file: {fname}")
+        else:
+            file_type, metadata = pair
+            LOGGER.debug(f"Matched {file_type} file: {fname}")
             yield fetch_file_info(
                 fname,
                 gather_digests=gather_digests,
@@ -45,16 +69,27 @@ def search(
                 file_type=file_type,
                 metadata=metadata,
             )
-        except StopIteration:
-            LOGGER.debug(f"Unmatched file: {fname}")
-            yield fetch_file_info(
-                fname,
-                gather_digests=False,
-                archived=False,
-                file_group=None,
-                file_type=file_type,
-                metadata={},
+
+
+def match_file_type_and_metadata(
+    fname: str, match_paths: Mapping[str, Sequence[Matcher]]
+) -> Optional[Tuple[str, Dict[str, str]]]:
+    def _match_metadata(matchers: Sequence[Matcher]) -> Optional[Dict[str, str]]:
+        try:
+            return next(
+                m for matcher in matchers if (m := matcher.match(fname)) is not None
             )
+        except StopIteration:
+            return None
+
+    try:
+        return next(
+            (ft, m)
+            for ft in match_paths
+            if (m := _match_metadata(match_paths[ft])) is not None
+        )
+    except StopIteration:
+        return None
 
 
 def fetch_file_info(
@@ -96,16 +131,7 @@ def digest(fname: str, chunk_size: int) -> Digest:
     return h.digest()
 
 
-class Matcher:
-    def __init__(self, expr: str):
-        self._expr = compiled_match_expr(expr)
-        self.glob = REGEXP_VAR.sub("*", expr)
-
-    def match(self, dir: str) -> Optional[Dict[str, str]]:
-        matches = re.match(self._expr, dir)
-        if matches is None:
-            return None
-        return matches.groupdict()
+# Matcher helpers
 
 
 def compiled_match_expr(expr: str) -> re.Pattern:

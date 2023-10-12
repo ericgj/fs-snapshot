@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-tests_require = ["pytest", "hypothesis"]
+tests_require = ["pytest", "pytest-random-order", "hypothesis"]
 
 setup(
     name="fs-snapshot",

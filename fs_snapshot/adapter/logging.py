@@ -27,7 +27,10 @@ def init_logger(
         h = logging.StreamHandler()
     else:
         h = logging.handlers.RotatingFileHandler(
-            filename=log_file, maxBytes=(2 ** 20), backupCount=9,
+            filename=log_file,
+            maxBytes=(2**22),
+            backupCount=9,
+            encoding="UTF-8",
         )
     f = logging.Formatter(format)
     h.setFormatter(f)
@@ -36,7 +39,10 @@ def init_logger(
 
 
 def init_db_logger(
-    *, name: str, log_file: str, level: int = logging.INFO,
+    *,
+    name: str,
+    log_file: str,
+    level: int = logging.INFO,
 ) -> logging.Logger:
     return init_logger(
         name=name,
