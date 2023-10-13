@@ -49,6 +49,7 @@ def parse_section(name: str, section: Dict[str, str]) -> Config:
         ("metadata", parse_string_dict(section.get("metadata", ""))),
         ("archived_by", parse_archived_by(section.get("archived_by", ""))),
         ("file_group_by", parse_calc(section.get("file_group_by", ""))),
+        ("minimum_size", parse_int(section.get("minimum_size", ""))),
     ]
     return Config(**dict([(k, v) for (k, v) in options if v is not None]))  # type: ignore
 
@@ -64,6 +65,13 @@ def parse_bool(s: str) -> Optional[bool]:
     if ss is None:
         return None
     return ss.lower() in ["y", "yes", "t", "true", "1"]
+
+
+def parse_int(s: str) -> Optional[int]:
+    ss = parse_string(s)
+    if ss is None:
+        return None
+    return int(ss)
 
 
 def parse_string_list(s: str) -> Optional[List[str]]:

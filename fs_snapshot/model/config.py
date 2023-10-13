@@ -50,6 +50,7 @@ class Config:
     metadata: Dict[str, str] = field(default_factory=dict)
     archived_by: ArchivedBy = NotArchived()
     file_group_by: CalcBy = NoCalc()
+    minimum_size: int = 0
 
     @property
     def store_db_log_file(self) -> str:

@@ -39,9 +39,10 @@ def store(
         is_archived=config.is_archived,
         calc_file_group=config.file_group_from,
     ):
-        LOGGER.debug(f"Storing: {file_info.file_name}")
-        store_db.import_files(conn, id, [file_info])
-        i = i + 1
+        if file_info.size >= config.minimum_size:
+            LOGGER.debug(f"Storing: {file_info.file_name}")
+            store_db.import_files(conn, id, [file_info])
+            i = i + 1
     return i
 
 
